@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     environment: Environment = "development"
     log_level: LogLevel = "INFO"
     data_dir: Path = Path("data")
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
 
 def get_settings() -> Settings:
