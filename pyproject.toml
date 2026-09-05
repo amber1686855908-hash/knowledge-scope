@@ -9,9 +9,11 @@ description = "A clean foundation for a multimodal RAG platform for industry doc
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "asyncpg>=0.30,<1.0",
     "fastapi>=0.115,<1.0",
     "pydantic>=2.10,<3.0",
     "pydantic-settings>=2.7,<3.0",
+    "sqlalchemy[asyncio]>=2.0.36,<3.0",
     "uvicorn[standard]>=0.34,<1.0",
 ]
 
@@ -20,6 +22,7 @@ knowledgescope = "knowledge_scope.cli:main"
 
 [dependency-groups]
 dev = [
+    "alembic>=1.14,<2.0",
     "httpx>=0.27,<1.0",
     "pytest>=8.3,<9.0",
     "ruff>=0.11,<1.0",
@@ -38,6 +41,9 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
 
 [tool.ruff.format]
 quote-style = "double"

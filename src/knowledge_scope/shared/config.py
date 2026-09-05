@@ -13,7 +13,7 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 class Settings(BaseSettings):
-    """Runtime settings for the KnowledgeScope foundation."""
+    """Runtime settings for the KnowledgeScope application."""
 
     model_config = SettingsConfigDict(
         case_sensitive=False,
@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     data_dir: Path = Path("data")
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    database_url: str = (
+        "postgresql+asyncpg://knowledgescope:knowledgescope@127.0.0.1:5433/knowledgescope"
+    )
 
 
 def get_settings() -> Settings:

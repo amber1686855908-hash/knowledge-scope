@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRoute } from "vue-router";
 
 import { useUiStore } from "../stores/ui";
 
 const uiStore = useUiStore();
+const route = useRoute();
 const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? "76px" : "240px"));
+const pageTitle = computed(() => String(route.meta.title ?? "项目概览"));
+const breadcrumbItems = computed(() => {
+  const breadcrumb = route.meta.breadcrumb;
+  return Array.isArray(breadcrumb) ? breadcrumb.map(String) : [pageTitle.value];
+});
 </script>
 
 <template>
@@ -26,7 +32,7 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? "76px" : "240px"
           class="brand-copy"
         >
           <span class="brand-name">KnowledgeScope</span>
-          <span class="brand-caption">Web foundation</span>
+          <span class="brand-caption">知识工作区</span>
         </div>
       </div>
 
@@ -46,14 +52,26 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? "76px" : "240px"
           >⌂</span>
           <span v-if="!uiStore.sidebarCollapsed">项目概览</span>
         </RouterLink>
+        <RouterLink
+          to="/knowledge-bases"
+          class="nav-item"
+          active-class="is-active"
+          title="知识库"
+        >
+          <span
+            class="nav-icon"
+            aria-hidden="true"
+          >▦</span>
+          <span v-if="!uiStore.sidebarCollapsed">知识库</span>
+        </RouterLink>
       </nav>
 
       <div
         v-if="!uiStore.sidebarCollapsed"
         class="sidebar-footer"
       >
-        <span>当前阶段</span>
-        <strong>A0.5</strong>
+        <span>工作区</span>
+        <strong>KnowledgeScope</strong>
       </div>
     </aside>
 
@@ -74,11 +92,16 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? "76px" : "240px"
             aria-label="当前位置"
           >
             <span>KnowledgeScope</span>
-            <span
-              class="breadcrumb-separator"
-              aria-hidden="true"
-            >/</span>
-            <span>项目概览</span>
+            <template
+              v-for="item in breadcrumbItems"
+              :key="item"
+            >
+              <span
+                class="breadcrumb-separator"
+                aria-hidden="true"
+              >/</span>
+              <span>{{ item }}</span>
+            </template>
           </div>
         </div>
         <div class="topbar-status">
@@ -86,7 +109,7 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? "76px" : "240px"
             class="status-dot"
             aria-hidden="true"
           />
-          <span>Phase A0.5 · Web foundation</span>
+          <span>{{ pageTitle }}</span>
         </div>
       </header>
 

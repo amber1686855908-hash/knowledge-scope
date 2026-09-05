@@ -15,13 +15,17 @@ def make_app() -> FastAPI:
     return create_app(settings)
 
 
-def get_response(path: str, headers: dict[str, str] | None = None) -> httpx.Response:
+def get_response(
+    path: str,
+    headers: dict[str, str] | None = None,
+    method: str = "GET",
+) -> httpx.Response:
     app = make_app()
 
     async def request() -> httpx.Response:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-            return await client.get(path, headers=headers)
+            return await client.request(method, path, headers=headers)
 
     return anyio.run(request)
 
@@ -45,7 +49,7 @@ def test_meta_endpoint_reports_current_foundation_status() -> None:
     assert response.json() == {
         "project_name": "KnowledgeScope",
         "version": "0.1.0",
-        "phase": "A0.5",
+        "phase": "A1.1",
         "status": "foundation",
         "config_status": "ok",
     }
@@ -69,3 +73,20 @@ def test_cors_does_not_allow_unconfigured_origins() -> None:
 
     assert response.status_code == 200
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_cors_allows_json_crud_preflight() -> None:
+    response = get_response(
+        "/api/v1/knowledge-bases",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+        method="OPTIONS",
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "POST" in response.headers["access-control-allow-methods"]
+    assert "content-type" in response.headers["access-control-allow-headers"].lower()
