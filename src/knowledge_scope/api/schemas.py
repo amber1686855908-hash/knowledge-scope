@@ -6,6 +6,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from knowledge_scope.documents.models import (
+    DOCUMENT_FILENAME_MAX_LENGTH,
+    DOCUMENT_MEDIA_TYPE_PDF,
+    DOCUMENT_STATUS_UPLOADED,
+)
 from knowledge_scope.knowledge_bases.models import (
     KNOWLEDGE_BASE_DESCRIPTION_MAX_LENGTH,
     KNOWLEDGE_BASE_NAME_MAX_LENGTH,
@@ -30,7 +35,7 @@ class MetaResponse(BaseModel):
 
     project_name: str
     version: str
-    phase: Literal["A1.1"]
+    phase: Literal["A1.2"]
     status: Literal["foundation"]
     config_status: Literal["ok"]
 
@@ -107,6 +112,32 @@ class KnowledgeBaseListResponse(BaseModel):
     """Bounded list response for knowledge bases."""
 
     items: list[KnowledgeBaseResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class DocumentResponse(BaseModel):
+    """Public metadata for one uploaded document."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    knowledge_base_id: UUID
+    original_filename: str = Field(..., max_length=DOCUMENT_FILENAME_MAX_LENGTH)
+    storage_key: str
+    media_type: Literal[DOCUMENT_MEDIA_TYPE_PDF]
+    size_bytes: int = Field(..., gt=0)
+    sha256: str = Field(..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    status: Literal[DOCUMENT_STATUS_UPLOADED]
+    created_at: datetime
+    updated_at: datetime
+
+
+class DocumentListResponse(BaseModel):
+    """Bounded list response for documents in one knowledge base."""
+
+    items: list[DocumentResponse]
     total: int
     limit: int
     offset: int
