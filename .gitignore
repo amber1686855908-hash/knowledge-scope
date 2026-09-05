@@ -1,0 +1,29 @@
+# Python caches and test/tool state
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+
+# Virtual environments and packaging output
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Local configuration and runtime data
+.env
+.env.*
+!.env.example
+data/
+logs/
+
+# IDE settings
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
