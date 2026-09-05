@@ -14,6 +14,7 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.log_level == "INFO"
     assert settings.data_dir == Path("data")
     assert settings.cors_origins == ["http://localhost:5173"]
+    assert settings.database_url.endswith("/knowledgescope")
 
 
 def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,7 +34,8 @@ def test_settings_load_dotenv_file(tmp_path: Path) -> None:
     env_file.write_text(
         "KNOWLEDGE_SCOPE_PROJECT_NAME=ConfiguredProject\n"
         "KNOWLEDGE_SCOPE_ENVIRONMENT=test\n"
-        'KNOWLEDGE_SCOPE_CORS_ORIGINS=["http://localhost:4173"]\n',
+        'KNOWLEDGE_SCOPE_CORS_ORIGINS=["http://localhost:4173"]\n'
+        "KNOWLEDGE_SCOPE_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/example\n",
         encoding="utf-8",
     )
 
@@ -42,6 +44,7 @@ def test_settings_load_dotenv_file(tmp_path: Path) -> None:
     assert settings.project_name == "ConfiguredProject"
     assert settings.environment == "test"
     assert settings.cors_origins == ["http://localhost:4173"]
+    assert settings.database_url.endswith("/example")
 
 
 def test_settings_reject_invalid_values() -> None:

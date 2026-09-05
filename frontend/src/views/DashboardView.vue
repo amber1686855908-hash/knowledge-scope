@@ -35,18 +35,18 @@ async function retry(): Promise<void> {
     <div class="page-heading">
       <div>
         <p class="eyebrow">
-          PROJECT FOUNDATION
+          项目基础
         </p>
         <h1>项目概览</h1>
         <p class="page-description">
-          这里展示 KnowledgeScope 当前已实现的 Web 应用基础状态，不包含尚未实现的业务数据。
+          这里展示 KnowledgeScope 当前服务状态，帮助你确认应用与 API 的连接情况。
         </p>
       </div>
       <el-tag
         type="info"
         effect="plain"
       >
-        Phase A0.5
+        服务状态
       </el-tag>
     </div>
 
@@ -93,7 +93,7 @@ async function retry(): Promise<void> {
             class="connection-indicator"
             aria-hidden="true"
           >●</span>
-          <span>Backend connected</span>
+          <span>后端已连接</span>
         </div>
       </div>
 

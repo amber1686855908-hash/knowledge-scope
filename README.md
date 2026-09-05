@@ -1,51 +1,78 @@
 # KnowledgeScope
 
-KnowledgeScope 是一个面向行业文档、用于未来 multimodal RAG platform 的 Python 3.12 项目。
+KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，目前提供知识库管理的 Web 应用基础。
 
 ## 当前状态
 
-Phase A0.5 已完成，目前提供：
+Phase A1.1 已完成，目前提供：
 
 - 使用 `uv` 管理的 `src/knowledge_scope` package，以及现有的 settings 和 health CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
-- 使用 Pydantic response models 的非敏感 health/meta 信息；
-- 通过 `KNOWLEDGE_SCOPE_CORS_ORIGINS` 配置 CORS origins；
+- 基于 PostgreSQL、SQLAlchemy 2.x async 和 `asyncpg` 的知识库持久化；
+- 使用 Alembic 管理 `knowledge_bases` 表结构；
+- `POST`、`GET`、`PATCH`、`DELETE /api/v1/knowledge-bases` CRUD API，支持分页、校验和 404 响应；
 - 使用 Vue 3、TypeScript、Vite、Vue Router、Element Plus、`@tanstack/vue-query` 和 Pinia 的 `frontend/` 应用；
-- 只包含项目概览和 404 页面的 Web application shell，概览数据来自真实后端 API，并包含 loading、error 和 success 状态。
+- 知识库列表和详情页面，支持真实数据的加载、空状态、错误重试、新建、编辑、删除确认和分页。
 
-MinerU、document ingestion、parsing、chunking、RAG、GraphRAG、multimodal retrieval、evaluation、ChatBI 和 NL2SQL 均尚未实现。
+文档 ingestion、MinerU、parsing、chunking、RAG、GraphRAG、multimodal retrieval、evaluation、LLM、Agent、ChatBI 和 NL2SQL 均尚未实现。
 
-## 开始使用
+## 本地开发
 
-后端依赖和环境：
+### 安装依赖
 
 ```bash
 uv sync
 ```
 
-启动后端 API：
+前端依赖安装：
+
+```bash
+cd frontend
+npm install
+```
+
+### 启动 PostgreSQL
+
+```bash
+docker compose up -d postgres
+```
+
+Compose 默认将 PostgreSQL 映射到 `127.0.0.1:5433`，本地开发凭据和数据库名定义在 [compose.yaml](compose.yaml) 中。复制 [.env.example](.env.example) 为 `.env` 后，可通过 `KNOWLEDGE_SCOPE_POSTGRES_PORT` 修改宿主机端口，并同步更新 `KNOWLEDGE_SCOPE_DATABASE_URL`；不要在 `.env` 中提交 secrets。
+
+### 执行数据库迁移
+
+```bash
+uv run alembic upgrade head
+```
+
+Alembic 是数据库 schema 的唯一来源；应用启动不会调用 `create_all()`。回退最近一次迁移：
+
+```bash
+uv run alembic downgrade -1
+```
+
+### 启动后端和前端
+
+后端：
 
 ```bash
 uv run uvicorn knowledge_scope.api.app:app --reload
 ```
 
-启动前端：
+前端（在另一个终端执行）：
 
 ```bash
 cd frontend
-npm install
 npm run dev
 ```
 
-本地完整开发时，保持后端和前端分别运行。Vite 会将 `/api` 请求代理到 `http://127.0.0.1:8000`，前端默认通过 `VITE_API_BASE_URL=/api` 访问 API。
+Vite 会将 `/api` 请求代理到 `http://127.0.0.1:8000`，前端默认通过 `VITE_API_BASE_URL=/api` 访问 API。
 
-Vite 默认使用 native file watcher。若当前开发机受到 inotify 或 file watcher limit 限制，可在 `frontend/.env` 中将 `VITE_USE_POLLING=true`，再运行 `npm run dev`；后端 `uvicorn --reload` 也可在命令前加 `WATCHFILES_FORCE_POLLING=true`。这些 polling 选项仅用于开发环境。
-
-本地 settings 可通过基于 [.env.example](.env.example) 创建的 `.env` 文件提供；前端 API base 可参考 [frontend/.env.example](frontend/.env.example)。`.env` 已被 Git 忽略，不得提交 secrets。
+Vite 默认使用 native file watcher。若开发机受到 inotify 或 file watcher limit 限制，可在 `frontend/.env` 中将 `VITE_USE_POLLING=true`；后端 `uvicorn --reload` 可在命令前加 `WATCHFILES_FORCE_POLLING=true`。这些 polling 选项仅用于开发环境。
 
 ## 验证
 
-后端：
+后端测试会使用 PostgreSQL 创建独立的临时测试数据库，执行迁移，并在测试会话结束后清理；Compose 默认用户具备所需权限。
 
 ```bash
 uv run ruff check .
@@ -64,4 +91,4 @@ npm run build
 
 ## 后续方向
 
-后续阶段可能加入 document ingestion and parsing、chunking、vector and graph retrieval、multimodal retrieval、evaluation 和 ChatBI/NL2SQL。每项能力都会配套独立实现和测试；当前基础不会将尚未实现的能力描述为已具备。
+文档 ingestion、parsing、chunking、vector retrieval、GraphRAG、multimodal retrieval、evaluation、ChatBI 和 NL2SQL 将在后续阶段单独设计和实现；当前版本不包含这些能力。
