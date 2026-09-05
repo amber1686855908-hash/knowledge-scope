@@ -1,36 +1,36 @@
 # KnowledgeScope
 
-KnowledgeScope is a Python 3.12 project foundation for a future multimodal RAG platform focused on industry documents.
+KnowledgeScope 是一个面向行业文档、用于未来 multimodal RAG platform 的 Python 3.12 项目基础。
 
-## Current status
+## 当前状态
 
-Phase A0 currently provides:
+Phase A0 已完成，目前提供：
 
-- a `src/knowledge_scope` package managed with `uv`;
-- validated application settings using Pydantic v2 and `pydantic-settings`;
-- a small health CLI that reports the project, version, runtime, and configuration status;
-- pytest coverage plus Ruff linting and formatting configuration; and
-- package boundaries for future ingestion, parsing, chunking, retrieval, evaluation, and shared infrastructure work.
+- 使用 `uv` 管理的 `src/knowledge_scope` package；
+- 使用 Pydantic v2 和 `pydantic-settings` 实现的配置校验；
+- 可报告 project、version、runtime 和 configuration status 的 health CLI；
+- pytest 测试覆盖，以及 Ruff linting 和 formatting 配置；
+- 面向后续 ingestion、parsing、chunking、retrieval、evaluation 和 shared infrastructure 的 package boundaries。
 
-The document-processing, retrieval, GraphRAG, multimodal, evaluation, and ChatBI/NL2SQL capabilities are not implemented yet.
+MinerU、document-processing、retrieval、GraphRAG、multimodal retrieval、evaluation、ChatBI 和 NL2SQL 均尚未实现。
 
-## Getting started
+## 开始使用
 
-Install the project and development dependencies with:
+使用以下命令安装项目及开发依赖：
 
 ```bash
 uv sync
 ```
 
-Run the health check:
+运行 health check：
 
 ```bash
 uv run knowledgescope health
 ```
 
-Local settings can be supplied through a `.env` file based on [.env.example](.env.example). `.env` is ignored by Git and must not contain committed secrets.
+本地 settings 可通过基于 [.env.example](.env.example) 创建的 `.env` 文件提供。`.env` 已被 Git 忽略，不得提交 secrets。
 
-## Validation
+## 验证
 
 ```bash
 uv run ruff check .
@@ -38,6 +38,6 @@ uv run ruff format --check .
 uv run pytest
 ```
 
-## Direction
+## 后续方向
 
-Later phases may add document ingestion and parsing, chunking, vector and graph retrieval, multimodal retrieval, evaluation, and ChatBI/NL2SQL. Each capability will be introduced with its own implementation and tests; this foundation intentionally does not pretend those capabilities exist.
+后续阶段可能加入 document ingestion and parsing、chunking、vector and graph retrieval、multimodal retrieval、evaluation 和 ChatBI/NL2SQL。每项能力都会配套独立实现和测试；当前基础不会将尚未实现的能力描述为已具备。
