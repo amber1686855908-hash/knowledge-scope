@@ -24,6 +24,7 @@ from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import get_session
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+LOCAL_DATABASE_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 @pytest.fixture
@@ -63,10 +64,30 @@ def _upgrade_database(database_url: str) -> None:
     command.upgrade(alembic_config, "head")
 
 
+def _resolve_test_base_url() -> URL:
+    """Resolve the server URL without allowing an accidental remote fallback."""
+    configured_url = os.environ.get("KNOWLEDGE_SCOPE_TEST_DATABASE_URL")
+    if configured_url is not None:
+        if not configured_url.strip():
+            raise pytest.UsageError(
+                "KNOWLEDGE_SCOPE_TEST_DATABASE_URL must be a non-empty PostgreSQL URL."
+            )
+        return make_url(configured_url)
+
+    base_url = make_url(Settings(_env_file=None).database_url)
+    if base_url.host not in LOCAL_DATABASE_HOSTS:
+        host = base_url.host or "<missing>"
+        raise pytest.UsageError(
+            "KNOWLEDGE_SCOPE_DATABASE_URL points to non-local host "
+            f"{host!r}; set KNOWLEDGE_SCOPE_TEST_DATABASE_URL explicitly before "
+            "running PostgreSQL integration tests."
+        )
+    return base_url
+
+
 @pytest.fixture(scope="session")
 def postgres_test_database() -> Iterator[str]:
-    configured_url = os.environ.get("KNOWLEDGE_SCOPE_TEST_DATABASE_URL")
-    base_url = make_url(configured_url or Settings(_env_file=None).database_url)
+    base_url = _resolve_test_base_url()
     database_name = f"knowledgescope_test_{uuid4().hex}"
 
     asyncio.run(_create_database(base_url, database_name))

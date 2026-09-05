@@ -72,7 +72,7 @@ Vite 默认使用 native file watcher。若开发机受到 inotify 或 file watc
 
 ## 验证
 
-后端测试会使用 PostgreSQL 创建独立的临时测试数据库，执行迁移，并在测试会话结束后清理；Compose 默认用户具备所需权限。
+后端测试会使用 PostgreSQL 创建独立的 UUID 命名临时数据库，执行迁移，并在测试会话结束后只清理该临时库。未设置 `KNOWLEDGE_SCOPE_TEST_DATABASE_URL` 时，测试仅允许从 `KNOWLEDGE_SCOPE_DATABASE_URL` 的本机地址（`localhost`、`127.0.0.1` 或 `::1`）创建临时库；若应用地址是远程主机，必须显式配置 `KNOWLEDGE_SCOPE_TEST_DATABASE_URL`。Compose 默认用户具备所需权限。
 
 ```bash
 uv run ruff check .

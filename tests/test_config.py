@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from conftest import _resolve_test_base_url
 from knowledge_scope.shared.config import Settings
 
 
@@ -50,3 +51,31 @@ def test_settings_load_dotenv_file(tmp_path: Path) -> None:
 def test_settings_reject_invalid_values() -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, environment="staging")
+
+
+def test_test_database_guard_rejects_remote_application_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("KNOWLEDGE_SCOPE_TEST_DATABASE_URL", raising=False)
+    monkeypatch.setenv(
+        "KNOWLEDGE_SCOPE_DATABASE_URL",
+        "postgresql+asyncpg://user:pass@staging.example.com:5432/knowledgescope",
+    )
+
+    with pytest.raises(pytest.UsageError, match="KNOWLEDGE_SCOPE_TEST_DATABASE_URL"):
+        _resolve_test_base_url()
+
+
+def test_test_database_guard_prefers_explicit_test_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "KNOWLEDGE_SCOPE_DATABASE_URL",
+        "postgresql+asyncpg://user:pass@staging.example.com:5432/knowledgescope",
+    )
+    monkeypatch.setenv(
+        "KNOWLEDGE_SCOPE_TEST_DATABASE_URL",
+        "postgresql+asyncpg://test:pass@test-db.example.com:5432/postgres",
+    )
+
+    assert _resolve_test_base_url().host == "test-db.example.com"
