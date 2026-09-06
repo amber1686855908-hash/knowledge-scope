@@ -46,7 +46,6 @@ export interface Document {
   id: string;
   knowledge_base_id: string;
   original_filename: string;
-  storage_key: string;
   media_type: "application/pdf";
   size_bytes: number;
   sha256: string;

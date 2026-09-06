@@ -52,8 +52,10 @@ const documentsQuery = useQuery({
 
 const uploadMutation = useMutation({
   mutationFn: (file: File) => uploadDocument(knowledgeBaseId.value, file),
-  onSuccess: () =>
-    queryClient.invalidateQueries({ queryKey: ["documents", knowledgeBaseId.value] }),
+  onSuccess: () => {
+    currentPage.value = 1;
+    return queryClient.invalidateQueries({ queryKey: ["documents", knowledgeBaseId.value] });
+  },
 });
 
 const deleteMutation = useMutation({

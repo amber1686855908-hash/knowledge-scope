@@ -125,7 +125,6 @@ class DocumentResponse(BaseModel):
     id: UUID
     knowledge_base_id: UUID
     original_filename: str = Field(..., max_length=DOCUMENT_FILENAME_MAX_LENGTH)
-    storage_key: str
     media_type: Literal[DOCUMENT_MEDIA_TYPE_PDF]
     size_bytes: int = Field(..., gt=0)
     sha256: str = Field(..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")

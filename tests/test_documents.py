@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 import pytest
 from httpx import AsyncClient, Response
 
+from knowledge_scope.documents.storage import storage_key_for_document
+
 VALID_PDF = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
 
@@ -48,17 +50,26 @@ async def test_upload_persists_pdf_metadata_and_uses_fixed_storage_path(
     document = response.json()
     document_id = UUID(document["id"])
     knowledge_base_id = UUID(knowledge_base["id"])
-    expected_storage_key = f"documents/{knowledge_base_id}/{document_id}/original.pdf"
+    assert set(document) == {
+        "id",
+        "knowledge_base_id",
+        "original_filename",
+        "media_type",
+        "size_bytes",
+        "sha256",
+        "status",
+        "created_at",
+        "updated_at",
+    }
+    expected_storage_key = storage_key_for_document(knowledge_base_id, document_id)
     expected_path = test_data_dir / expected_storage_key
 
     assert document["knowledge_base_id"] == str(knowledge_base_id)
     assert document["original_filename"] == "原始文件.PDF"
-    assert document["storage_key"] == expected_storage_key
     assert document["media_type"] == "application/pdf"
     assert document["size_bytes"] == len(VALID_PDF)
     assert document["sha256"] == hashlib.sha256(VALID_PDF).hexdigest()
     assert document["status"] == "uploaded"
-    assert not Path(document["storage_key"]).is_absolute()
     assert expected_path.read_bytes() == VALID_PDF
     assert expected_path.name == "original.pdf"
     assert "原始文件" not in str(expected_path)
@@ -116,7 +127,13 @@ async def test_same_pdf_can_be_uploaded_to_different_knowledge_bases(
     assert first_response.status_code == 201
     assert second_response.status_code == 201
     assert first_response.json()["sha256"] == second_response.json()["sha256"]
-    assert first_response.json()["storage_key"] != second_response.json()["storage_key"]
+    first_storage_key = storage_key_for_document(
+        UUID(first_knowledge_base["id"]), UUID(first_response.json()["id"])
+    )
+    second_storage_key = storage_key_for_document(
+        UUID(second_knowledge_base["id"]), UUID(second_response.json()["id"])
+    )
+    assert first_storage_key != second_storage_key
 
 
 @pytest.mark.anyio
@@ -231,8 +248,9 @@ async def test_document_is_owned_by_its_knowledge_base(
     second_knowledge_base = await create_knowledge_base(client, "另一个知识库")
     document_response = await upload_pdf(client, str(first_knowledge_base["id"]))
     document = document_response.json()
-    document_id = document["id"]
-    stored_path = test_data_dir / document["storage_key"]
+    first_knowledge_base_id = UUID(first_knowledge_base["id"])
+    document_id = UUID(document["id"])
+    stored_path = test_data_dir / storage_key_for_document(first_knowledge_base_id, document_id)
 
     get_response = await client.get(
         f"/api/v1/knowledge-bases/{second_knowledge_base['id']}/documents/{document_id}"
@@ -254,7 +272,9 @@ async def test_delete_removes_document_metadata_and_file_and_allows_empty_kb_del
     knowledge_base = await create_knowledge_base(client)
     knowledge_base_id = str(knowledge_base["id"])
     document = (await upload_pdf(client, knowledge_base_id)).json()
-    stored_path = test_data_dir / document["storage_key"]
+    stored_path = test_data_dir / storage_key_for_document(
+        UUID(knowledge_base_id), UUID(document["id"])
+    )
 
     blocked_delete = await client.delete(f"/api/v1/knowledge-bases/{knowledge_base_id}")
     assert blocked_delete.status_code == 409
