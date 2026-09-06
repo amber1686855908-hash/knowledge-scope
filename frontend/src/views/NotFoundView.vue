@@ -4,8 +4,8 @@ import { useRouter } from "vue-router";
 
 const router = useRouter();
 
-function goToDashboard(): void {
-  void router.push("/");
+function goToKnowledgeBases(): void {
+  void router.push({ name: "knowledge-bases" });
 }
 </script>
 
@@ -14,14 +14,14 @@ function goToDashboard(): void {
     <el-result
       icon="warning"
       title="页面不存在"
-      sub-title="当前版本仅提供 KnowledgeScope 项目基础概览。"
+      sub-title="找不到你要访问的内容。"
     >
       <template #extra>
         <el-button
           type="primary"
-          @click="goToDashboard"
+          @click="goToKnowledgeBases"
         >
-          返回项目概览
+          返回知识库
         </el-button>
       </template>
     </el-result>

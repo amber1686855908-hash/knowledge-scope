@@ -25,6 +25,32 @@ export class ApiError extends Error {
   }
 }
 
+export function getUserFacingError(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) {
+    return fallback;
+  }
+
+  if (error.status === 404) {
+    return "请求的内容不存在或已被删除。";
+  }
+  if (error.status === 409) {
+    return "已有相同内容，请检查后重试。";
+  }
+  if (error.status === 413) {
+    return "文件过大，请选择较小的 PDF。";
+  }
+  if (error.status === 415) {
+    return "仅支持 PDF 文件。";
+  }
+  if (error.status === 422) {
+    return "提交内容未通过校验，请检查后重试。";
+  }
+  if (error.status >= 500) {
+    return "服务暂时不可用，请稍后重试。";
+  }
+  return fallback;
+}
+
 async function readErrorDetail(response: Response): Promise<string | undefined> {
   try {
     const payload: unknown = await response.json();

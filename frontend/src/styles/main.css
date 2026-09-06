@@ -1,11 +1,64 @@
 :root {
-  color: #2d3e51;
+  --ks-bg: #f5f5f2;
+  --ks-surface: #fffefa;
+  --ks-surface-subtle: #f8f8f5;
+  --ks-surface-muted: #f1f2ee;
+  --ks-ink: #202622;
+  --ks-text: #39423c;
+  --ks-muted: #727b74;
+  --ks-faint: #a4aba5;
+  --ks-border: #e2e5df;
+  --ks-border-strong: #d4d9d2;
+  --ks-accent: #377466;
+  --ks-accent-strong: #285d51;
+  --ks-accent-soft: #e6f0ec;
+  --ks-success: #3f8063;
+  --ks-warning: #a66f32;
+  --ks-danger: #b45e56;
+  --ks-shadow-sm: 0 1px 2px rgb(32 38 34 / 4%);
+  --ks-shadow-md: 0 8px 24px rgb(32 38 34 / 6%);
+  --ks-space-1: 4px;
+  --ks-space-2: 8px;
+  --ks-space-3: 12px;
+  --ks-space-4: 16px;
+  --ks-space-5: 24px;
+  --ks-space-6: 32px;
+  --ks-space-7: 40px;
+  --ks-radius-sm: 8px;
+  --ks-radius-md: 10px;
+  --ks-radius-lg: 14px;
+  --ks-duration-fast: 140ms;
+  --ks-duration-normal: 180ms;
+  --ks-ease-out: cubic-bezier(0.22, 0.8, 0.24, 1);
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans",
     "Microsoft YaHei", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  background: #f4f6f8;
+  color: var(--ks-text);
+  background: var(--ks-bg);
+
+  --el-color-primary: var(--ks-accent);
+  --el-color-primary-light-3: #6a9d91;
+  --el-color-primary-light-5: #9abbb3;
+  --el-color-primary-light-7: #c2d8d2;
+  --el-color-primary-light-9: #edf5f2;
+  --el-color-primary-dark-2: var(--ks-accent-strong);
+  --el-border-color: var(--ks-border);
+  --el-border-color-light: #eceee9;
+  --el-border-color-lighter: #f1f2ef;
+  --el-text-color-primary: var(--ks-ink);
+  --el-text-color-regular: var(--ks-text);
+  --el-text-color-secondary: var(--ks-muted);
+  --el-text-color-placeholder: #a0a7a1;
+  --el-bg-color: var(--ks-surface);
+  --el-bg-color-page: var(--ks-bg);
+  --el-fill-color-blank: var(--ks-surface);
+  --el-fill-color-light: var(--ks-surface-subtle);
+  --el-border-radius-base: var(--ks-radius-sm);
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 999px;
+  --el-box-shadow-light: var(--ks-shadow-md);
 }
 
 * {
@@ -17,7 +70,7 @@ body {
   min-width: 320px;
   min-height: 100%;
   margin: 0;
-  background: #f4f6f8;
+  background: var(--ks-bg);
 }
 
 button,
@@ -30,6 +83,144 @@ select {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+button,
+a,
+input,
+textarea,
+select,
+.el-button {
+  outline-color: var(--ks-accent);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+.el-button:focus-visible {
+  outline: 2px solid var(--ks-accent);
+  outline-offset: 2px;
+}
+
+.el-button {
+  min-height: 36px;
+  font-weight: 620;
+  transition: color var(--ks-duration-fast) var(--ks-ease-out),
+    background-color var(--ks-duration-fast) var(--ks-ease-out),
+    border-color var(--ks-duration-fast) var(--ks-ease-out),
+    box-shadow var(--ks-duration-fast) var(--ks-ease-out),
+    transform var(--ks-duration-fast) var(--ks-ease-out);
+}
+
+.el-button:not(.is-disabled):active {
+  transform: scale(0.98);
+}
+
+.el-button--primary {
+  box-shadow: 0 2px 5px rgb(55 116 102 / 16%);
+}
+
+.el-button--primary:hover {
+  box-shadow: 0 4px 10px rgb(55 116 102 / 20%);
+}
+
+.el-button.is-text,
+.el-button.is-link {
+  min-height: auto;
+}
+
+.el-input__wrapper,
+.el-textarea__inner {
+  box-shadow: 0 0 0 1px var(--ks-border) inset;
+  transition: box-shadow var(--ks-duration-fast) var(--ks-ease-out),
+    background-color var(--ks-duration-fast) var(--ks-ease-out);
+}
+
+.el-input__wrapper:hover,
+.el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px var(--ks-border-strong) inset;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--ks-accent) inset, 0 0 0 3px rgb(55 116 102 / 12%);
+}
+
+.el-dialog {
+  border: 1px solid var(--ks-border);
+  border-radius: var(--ks-radius-lg);
+  box-shadow: 0 18px 48px rgb(32 38 34 / 14%);
+}
+
+.el-dialog__header {
+  margin-right: 0;
+  padding: 24px 24px 8px;
+}
+
+.el-dialog__title {
+  color: var(--ks-ink);
+  font-size: 18px;
+  font-weight: 680;
+}
+
+.el-dialog__body {
+  padding: 12px 24px 8px;
+}
+
+.el-dialog__footer {
+  padding: 16px 24px 24px;
+  border-top: 1px solid var(--ks-border);
+}
+
+.el-form-item__label {
+  color: var(--ks-text);
+  font-weight: 620;
+}
+
+.el-dropdown-menu {
+  min-width: 120px;
+  padding: 6px;
+  border: 1px solid var(--ks-border);
+  border-radius: var(--ks-radius-md);
+  box-shadow: var(--ks-shadow-md);
+}
+
+.el-dropdown-menu__item {
+  border-radius: 6px;
+}
+
+.el-dropdown-menu__item:not(.is-disabled):hover {
+  color: var(--ks-accent-strong);
+  background: var(--ks-accent-soft);
+}
+
+.el-message-box {
+  border: 1px solid var(--ks-border);
+  border-radius: var(--ks-radius-lg);
+}
+
+.el-pagination {
+  --el-pagination-bg-color: var(--ks-surface-subtle);
+  --el-pagination-button-color: var(--ks-muted);
+  --el-pagination-hover-color: var(--ks-accent-strong);
+}
+
+.el-pagination.is-background .el-pager li:not(.is-disabled).is-active {
+  color: var(--ks-surface);
+  background-color: var(--ks-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 #app {

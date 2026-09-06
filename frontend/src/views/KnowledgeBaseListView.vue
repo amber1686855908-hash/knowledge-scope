@@ -3,20 +3,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, reactive, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
-  ElAlert,
   ElButton,
-  ElCard,
   ElDialog,
-  ElEmpty,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
   ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
   ElMessageBox,
   ElPagination,
-  ElSkeleton,
-  ElTable,
-  ElTableColumn,
 } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 
@@ -24,6 +21,7 @@ import {
   createKnowledgeBase,
   deleteKnowledgeBase,
   fetchKnowledgeBases,
+  getUserFacingError,
   updateKnowledgeBase,
 } from "../api/client";
 import type {
@@ -49,7 +47,9 @@ const knowledgeBases = computed(() => listQuery.data.value?.items ?? []);
 const total = computed(() => listQuery.data.value?.total ?? 0);
 const isLoading = computed(() => listQuery.isPending.value);
 const isError = computed(() => listQuery.isError.value);
-const errorMessage = computed(() => getErrorMessage(listQuery.error.value));
+const errorMessage = computed(() =>
+  getUserFacingError(listQuery.error.value, "知识库暂时无法加载，请稍后重试。"),
+);
 
 const dialogVisible = ref(false);
 const dialogMode = ref<"create" | "edit">("create");
@@ -69,6 +69,9 @@ const formRules: FormRules = {
 };
 
 const dialogTitle = computed(() => (dialogMode.value === "create" ? "新建知识库" : "编辑知识库"));
+const dialogDescription = computed(() =>
+  dialogMode.value === "create" ? "为文档整理建立一个清晰的内容边界。" : "更新知识库名称或描述。",
+);
 const isMutating = computed(
   () =>
     createMutation.isPending.value ||
@@ -99,14 +102,6 @@ const deleteMutation = useMutation({
       queryClient.invalidateQueries({ queryKey: ["knowledge-base", id] }),
     ]),
 });
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "无法加载知识库，请稍后重试。";
-}
-
-function toKnowledgeBase(row: unknown): KnowledgeBase {
-  return row as KnowledgeBase;
-}
 
 function resetForm(): void {
   form.name = "";
@@ -140,10 +135,7 @@ async function submitForm(): Promise<void> {
   }
 
   const valid = await formRef.value.validate().catch(() => false);
-  if (!valid) {
-    return;
-  }
-  if (isMutating.value) {
+  if (!valid || isMutating.value) {
     return;
   }
 
@@ -162,14 +154,24 @@ async function submitForm(): Promise<void> {
     }
     dialogVisible.value = false;
   } catch (error) {
-    ElMessage.error(getErrorMessage(error));
+    const fallback =
+      dialogMode.value === "create" ? "知识库创建失败，请稍后重试。" : "知识库更新失败，请稍后重试。";
+    ElMessage.error(getUserFacingError(error, fallback));
+  }
+}
+
+function handleAction(command: string | number | object, knowledgeBase: KnowledgeBase): void {
+  if (command === "edit") {
+    openEditDialog(knowledgeBase);
+  } else if (command === "delete") {
+    void confirmDelete(knowledgeBase);
   }
 }
 
 async function confirmDelete(knowledgeBase: KnowledgeBase): Promise<void> {
   try {
     await ElMessageBox.confirm(
-      `确定删除知识库“${knowledgeBase.name}”吗？删除后无法恢复。`,
+      "确定删除知识库“" + knowledgeBase.name + "”吗？删除后无法恢复。",
       "删除知识库",
       {
         confirmButtonText: "删除",
@@ -181,7 +183,7 @@ async function confirmDelete(knowledgeBase: KnowledgeBase): Promise<void> {
     if (reason === "cancel" || reason === "close") {
       return;
     }
-    ElMessage.error(getErrorMessage(reason));
+    ElMessage.error(getUserFacingError(reason, "删除知识库失败，请稍后重试。"));
     return;
   }
 
@@ -197,7 +199,7 @@ async function confirmDelete(knowledgeBase: KnowledgeBase): Promise<void> {
     }
     ElMessage.success("知识库已删除");
   } catch (error) {
-    ElMessage.error(getErrorMessage(error));
+    ElMessage.error(getUserFacingError(error, "删除知识库失败，请稍后重试。"));
   }
 }
 
@@ -223,14 +225,11 @@ function formatDate(value: string): string {
 
 <template>
   <section class="knowledge-base-page">
-    <div class="page-heading">
-      <div>
-        <p class="eyebrow">
-          知识工作区
-        </p>
+    <header class="page-heading">
+      <div class="page-heading-copy">
         <h1>知识库</h1>
         <p class="page-description">
-          集中管理当前工作区中的知识库，为后续内容工作提供清晰边界。
+          管理行业文档，按主题整理你的知识内容。
         </p>
       </div>
       <el-button
@@ -238,42 +237,50 @@ function formatDate(value: string): string {
         :disabled="isMutating"
         @click="openCreateDialog"
       >
+        <span
+          class="button-leading"
+          aria-hidden="true"
+        >+</span>
         新建知识库
       </el-button>
-    </div>
+    </header>
 
-    <el-card
-      class="list-card"
-      shadow="never"
-    >
-      <div class="list-toolbar">
-        <div>
-          <h2>全部知识库</h2>
-          <p>共 {{ total }} 个知识库</p>
-        </div>
-      </div>
-
+    <section class="collection-surface">
       <div
         v-if="isLoading"
-        class="state-panel"
+        class="state-panel loading-state"
+        role="status"
+        aria-busy="true"
       >
-        <el-skeleton
-          :rows="5"
-          animated
-        />
+        <span class="sr-only">正在加载知识库</span>
+        <div class="kb-skeleton-list">
+          <div
+            v-for="index in 4"
+            :key="index"
+            class="kb-skeleton-row"
+          >
+            <span class="skeleton-mark" />
+            <span class="skeleton-copy">
+              <span class="skeleton-line skeleton-line-name" />
+              <span class="skeleton-line skeleton-line-description" />
+              <span class="skeleton-line skeleton-line-meta" />
+            </span>
+          </div>
+        </div>
       </div>
 
       <div
         v-else-if="isError"
         class="state-panel error-state"
+        role="alert"
       >
-        <el-alert
-          title="暂时无法加载知识库"
-          :description="errorMessage"
-          type="error"
-          :closable="false"
-          show-icon
-        />
+        <div class="state-symbol state-symbol-error">
+          !
+        </div>
+        <div class="state-copy">
+          <h3>知识库暂时无法加载</h3>
+          <p>{{ errorMessage }}</p>
+        </div>
         <el-button @click="retry">
           重试
         </el-button>
@@ -283,78 +290,86 @@ function formatDate(value: string): string {
         v-else-if="knowledgeBases.length === 0"
         class="state-panel empty-state"
       >
-        <el-empty description="还没有知识库">
-          <el-button
-            type="primary"
-            @click="openCreateDialog"
-          >
-            创建第一个知识库
-          </el-button>
-        </el-empty>
+        <div class="state-symbol state-symbol-empty">
+          KB
+        </div>
+        <div class="state-copy">
+          <h3>还没有知识库</h3>
+          <p>创建一个知识库，开始整理你的行业文档。</p>
+        </div>
+        <el-button
+          type="primary"
+          @click="openCreateDialog"
+        >
+          新建知识库
+        </el-button>
       </div>
 
       <template v-else>
-        <el-table
-          :data="knowledgeBases"
-          row-key="id"
-          class="knowledge-base-table"
+        <div
+          class="knowledge-base-list"
+          role="list"
         >
-          <el-table-column
-            label="名称"
-            min-width="260"
+          <article
+            v-for="knowledgeBase in knowledgeBases"
+            :key="knowledgeBase.id"
+            class="knowledge-base-item"
+            role="listitem"
           >
-            <template #default="scope">
-              <RouterLink
-                :to="{ name: 'knowledge-base-detail', params: { id: scope.row.id } }"
-                class="knowledge-base-name"
+            <RouterLink
+              :to="{ name: 'knowledge-base-detail', params: { id: knowledgeBase.id } }"
+              class="knowledge-base-link"
+              :aria-label="'打开知识库 ' + knowledgeBase.name"
+            >
+              <span
+                class="knowledge-base-mark"
+                aria-hidden="true"
+              >KB</span>
+              <span class="knowledge-base-copy">
+                <strong class="knowledge-base-name">{{ knowledgeBase.name }}</strong>
+                <span class="knowledge-base-description">
+                  {{ knowledgeBase.description || "未填写描述" }}
+                </span>
+                <span class="knowledge-base-meta">
+                  <span>最近更新</span>
+                  <time :datetime="knowledgeBase.updated_at">{{ formatDate(knowledgeBase.updated_at) }}</time>
+                </span>
+              </span>
+            </RouterLink>
+
+            <el-dropdown
+              trigger="click"
+              placement="bottom-end"
+              @command="handleAction($event, knowledgeBase)"
+            >
+              <button
+                class="more-button"
+                type="button"
+                :aria-label="knowledgeBase.name + ' 的更多操作'"
+                :disabled="isMutating"
+                @click.stop
               >
-                {{ scope.row.name }}
-              </RouterLink>
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="描述"
-            min-width="320"
-          >
-            <template #default="scope">
-              <span class="description-cell">{{ scope.row.description || "未填写描述" }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="更新时间"
-            width="190"
-          >
-            <template #default="scope">
-              <span class="date-cell">{{ formatDate(scope.row.updated_at) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="操作"
-            width="150"
-            align="right"
-          >
-            <template #default="scope">
-              <div class="row-actions">
-                <el-button
-                  link
-                  type="primary"
-                  :disabled="isMutating"
-                  @click="openEditDialog(toKnowledgeBase(scope.row))"
-                >
-                  编辑
-                </el-button>
-                <el-button
-                  link
-                  type="danger"
-                  :disabled="isMutating"
-                  @click="confirmDelete(toKnowledgeBase(scope.row))"
-                >
-                  删除
-                </el-button>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
+                <span aria-hidden="true">•••</span>
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    command="edit"
+                    :disabled="isMutating"
+                  >
+                    编辑
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    command="delete"
+                    :disabled="isMutating"
+                  >
+                    删除
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </article>
+        </div>
 
         <div
           v-if="total > PAGE_SIZE"
@@ -370,14 +385,18 @@ function formatDate(value: string): string {
           />
         </div>
       </template>
-    </el-card>
+    </section>
 
     <el-dialog
       v-model="dialogVisible"
+      class="knowledge-base-dialog"
       :title="dialogTitle"
-      width="520px"
+      width="480px"
       :close-on-click-modal="false"
     >
+      <p class="dialog-description">
+        {{ dialogDescription }}
+      </p>
       <el-form
         ref="formRef"
         :model="form"
@@ -433,7 +452,7 @@ function formatDate(value: string): string {
 .knowledge-base-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 32px;
 }
 
 .page-heading {
@@ -443,131 +462,370 @@ function formatDate(value: string): string {
   gap: 24px;
 }
 
-.eyebrow {
-  margin: 0 0 8px;
-  color: #8290a0;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-}
-
 h1,
 h2,
+h3,
 p {
   margin-top: 0;
 }
 
 h1 {
   margin-bottom: 10px;
-  color: #1e2c3d;
-  font-size: clamp(28px, 3vw, 38px);
+  color: var(--ks-ink);
+  font-size: clamp(28px, 3vw, 32px);
   font-weight: 700;
   letter-spacing: -0.03em;
+  line-height: 1.15;
 }
 
 .page-description {
   max-width: 680px;
   margin-bottom: 0;
-  color: #7c8999;
+  color: var(--ks-muted);
   font-size: 14px;
   line-height: 1.7;
 }
 
-.list-card {
-  border-color: #e7ebf0;
-  border-radius: 12px;
+.button-leading {
+  margin-right: 6px;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1;
 }
 
-.list-toolbar {
+.collection-surface {
+  overflow: hidden;
+  background: var(--ks-surface);
+  border: 1px solid var(--ks-border);
+  border-radius: var(--ks-radius-lg);
+  box-shadow: var(--ks-shadow-sm);
+}
+
+.knowledge-base-list {
+  padding: 0 24px;
+}
+
+.knowledge-base-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #edf0f3;
+  gap: 16px;
+  min-height: 96px;
+  border-bottom: 1px solid var(--ks-border);
 }
 
-.list-toolbar h2 {
-  margin-bottom: 5px;
-  color: #2b3c50;
-  font-size: 17px;
-  font-weight: 650;
+.knowledge-base-item:last-child {
+  border-bottom: 0;
 }
 
-.list-toolbar p {
-  margin-bottom: 0;
-  color: #8a96a6;
+.knowledge-base-link {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 16px;
+  min-height: 72px;
+  padding: 12px 8px 12px 0;
+  border-radius: var(--ks-radius-sm);
+  transition: background-color var(--ks-duration-fast) var(--ks-ease-out),
+    transform var(--ks-duration-fast) var(--ks-ease-out);
+}
+
+.knowledge-base-link:hover {
+  background: var(--ks-surface-subtle);
+}
+
+.knowledge-base-link:active {
+  transform: scale(0.995);
+}
+
+.knowledge-base-mark,
+.state-symbol {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--ks-accent-strong);
+  font-size: 11px;
+  font-weight: 720;
+  letter-spacing: 0.03em;
+  background: var(--ks-accent-soft);
+  border-radius: 9px;
+}
+
+.knowledge-base-mark {
+  width: 40px;
+  height: 40px;
+}
+
+.knowledge-base-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.knowledge-base-name {
+  overflow: hidden;
+  color: var(--ks-ink);
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-base-link:hover .knowledge-base-name {
+  color: var(--ks-accent-strong);
+}
+
+.knowledge-base-description {
+  overflow: hidden;
+  color: var(--ks-muted);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-base-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ks-faint);
   font-size: 12px;
+  line-height: 1.3;
+}
+
+.knowledge-base-meta time {
+  color: var(--ks-muted);
+}
+
+.more-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  padding: 0;
+  color: var(--ks-muted);
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--ks-radius-sm);
+  cursor: pointer;
+  transition: color var(--ks-duration-fast) var(--ks-ease-out),
+    background-color var(--ks-duration-fast) var(--ks-ease-out),
+    transform var(--ks-duration-fast) var(--ks-ease-out);
+}
+
+.more-button:hover:not(:disabled) {
+  color: var(--ks-ink);
+  background: var(--ks-surface-muted);
+}
+
+.more-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.more-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .state-panel {
   display: flex;
   min-height: 300px;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  gap: 18px;
-  padding: 28px 8px;
+  gap: 16px;
+  padding: 32px 24px;
+}
+
+.state-copy {
+  min-width: 0;
+}
+
+.state-copy h3 {
+  margin-bottom: 6px;
+  color: var(--ks-ink);
+  font-size: 15px;
+  font-weight: 680;
+}
+
+.state-copy p {
+  margin-bottom: 0;
+  color: var(--ks-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.state-symbol {
+  width: 44px;
+  height: 44px;
+}
+
+.state-symbol-error {
+  color: var(--ks-danger);
+  background: #f8eae8;
 }
 
 .error-state {
-  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .empty-state {
+  flex-direction: column;
+  text-align: center;
+}
+
+.empty-state .state-copy {
+  display: flex;
   align-items: center;
+  flex-direction: column;
 }
 
-.knowledge-base-table {
-  margin-top: 4px;
-}
-
-.knowledge-base-name {
-  color: #294c70;
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.knowledge-base-name:hover {
-  color: #1a3653;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.description-cell,
-.date-cell {
-  color: #748397;
-  font-size: 13px;
-}
-
-.description-cell {
+.loading-state {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-height: 380px;
 }
 
-.row-actions {
-  display: inline-flex;
-  gap: 4px;
+.kb-skeleton-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.kb-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 96px;
+  border-bottom: 1px solid var(--ks-border);
+}
+
+.kb-skeleton-row:last-child {
+  border-bottom: 0;
+}
+
+.skeleton-mark,
+.skeleton-line {
+  display: block;
+  background: var(--ks-surface-muted);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-mark {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 9px;
+}
+
+.skeleton-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+}
+
+.skeleton-line-name {
+  width: 30%;
+}
+
+.skeleton-line-description {
+  width: 58%;
+}
+
+.skeleton-line-meta {
+  width: 20%;
 }
 
 .pagination-row {
   display: flex;
   justify-content: flex-end;
-  padding-top: 22px;
+  padding: 20px 24px 22px;
+  border-top: 1px solid var(--ks-border);
+}
+
+.dialog-description {
+  margin-bottom: 22px;
+  color: var(--ks-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes skeleton-pulse {
+  0% {
+    opacity: 0.55;
+  }
+
+  100% {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 680px) {
   .page-heading {
     align-items: flex-start;
     flex-direction: column;
+    gap: 18px;
   }
 
-  .list-card :deep(.el-card__body) {
-    padding: 16px;
+  .page-heading .el-button {
+    align-self: flex-start;
+  }
+
+  .knowledge-base-list {
+    padding: 0 18px;
+  }
+
+  .knowledge-base-item {
+    gap: 8px;
+  }
+
+  .knowledge-base-link {
+    gap: 12px;
+  }
+
+  .knowledge-base-description {
+    max-width: 48vw;
   }
 
   .pagination-row {
     justify-content: center;
+    padding: 18px;
+  }
+
+  .state-panel {
+    flex-direction: column;
+    min-height: 260px;
+    text-align: center;
+  }
+
+  .error-state {
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-mark,
+  .skeleton-line {
+    animation: none;
   }
 }
 </style>
