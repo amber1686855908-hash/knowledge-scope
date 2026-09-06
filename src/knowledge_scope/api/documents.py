@@ -29,6 +29,7 @@ from knowledge_scope.documents.models import (
 from knowledge_scope.documents.storage import (
     StagedUpload,
     StorageError,
+    TrashedResource,
     UploadValidationError,
     filesystem_path_for_storage_key,
     move_to_trash,
@@ -40,6 +41,7 @@ from knowledge_scope.documents.storage import (
     stage_pdf,
     storage_key_for_document,
 )
+from knowledge_scope.parsing.service import PARSING_DIRECTORY_NAME
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import get_session
 
@@ -65,6 +67,19 @@ def _cleanup_upload(staged: StagedUpload | None, final_path: Path | None) -> Non
         remove_file(final_path)
     if staged is not None:
         remove_staged_upload(staged.directory, staged.path)
+
+
+def _restore_deleted_resources(resources: tuple[TrashedResource | None, ...]) -> bool:
+    """Restore staged resources and report whether any restoration failed."""
+    restoration_failed = False
+    for resource in reversed(resources):
+        if resource is None:
+            continue
+        try:
+            restore_from_trash(resource)
+        except OSError:
+            restoration_failed = True
+    return restoration_failed
 
 
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -217,13 +232,24 @@ async def delete_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
 
     settings = _runtime_settings(request)
+    trashed_source: TrashedResource | None = None
+    trashed_parsing: TrashedResource | None = None
     try:
         final_path = filesystem_path_for_storage_key(settings.data_dir, document.storage_key)
-        trashed = move_to_trash(final_path, settings.data_dir)
+        trashed_source = move_to_trash(final_path, settings.data_dir)
+
+        parsing_path = Path(settings.data_dir).resolve() / PARSING_DIRECTORY_NAME / str(document.id)
+        if parsing_path.is_symlink() or parsing_path.exists():
+            if parsing_path.is_symlink() or not parsing_path.is_dir():
+                raise StorageError("parsing artifact directory is invalid")
+            trashed_parsing = move_to_trash(parsing_path, settings.data_dir)
     except (OSError, StorageError):
+        restoration_failed = _restore_deleted_resources((trashed_source, trashed_parsing))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="文档文件不可用, 删除失败",
+            detail=(
+                "文档删除失败, 且文件恢复失败" if restoration_failed else "文档文件不可用, 删除失败"
+            ),
         ) from None
 
     try:
@@ -231,9 +257,7 @@ async def delete_document(
         await session.commit()
     except SQLAlchemyError:
         await session.rollback()
-        try:
-            restore_from_trash(trashed)
-        except OSError:
+        if _restore_deleted_resources((trashed_source, trashed_parsing)):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="文档删除失败, 且文件恢复失败",
@@ -243,9 +267,15 @@ async def delete_document(
             detail="文档删除失败",
         ) from None
 
-    try:
-        permanently_remove_trash(trashed)
-    except OSError:
+    cleanup_failed = False
+    for resource in (trashed_parsing, trashed_source):
+        if resource is None:
+            continue
+        try:
+            permanently_remove_trash(resource)
+        except OSError:
+            cleanup_failed = True
+    if cleanup_failed:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="文档已删除, 但文件清理失败",

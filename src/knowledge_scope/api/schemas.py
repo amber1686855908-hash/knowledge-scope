@@ -35,7 +35,7 @@ class MetaResponse(BaseModel):
 
     project_name: str
     version: str
-    phase: Literal["A1.3"]
+    phase: Literal["A1.4"]
     status: Literal["foundation"]
     config_status: Literal["ok"]
 

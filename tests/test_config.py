@@ -17,6 +17,8 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.max_upload_size_bytes == 50 * 1024 * 1024
     assert settings.cors_origins == ["http://localhost:5173"]
     assert settings.database_url.endswith("/knowledgescope")
+    assert settings.mineru_command == "mineru"
+    assert settings.mineru_timeout_seconds == 1800
 
 
 def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -24,6 +26,8 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_LOG_LEVEL", "DEBUG")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_DATA_DIR", "/tmp/knowledgescope-data")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_MAX_UPLOAD_SIZE_BYTES", "1024")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_MINERU_COMMAND", "/opt/mineru/bin/mineru")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_MINERU_TIMEOUT_SECONDS", "600")
 
     settings = Settings(_env_file=None)
 
@@ -31,6 +35,8 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.log_level == "DEBUG"
     assert settings.data_dir == Path("/tmp/knowledgescope-data")
     assert settings.max_upload_size_bytes == 1024
+    assert settings.mineru_command == "/opt/mineru/bin/mineru"
+    assert settings.mineru_timeout_seconds == 600
 
 
 def test_settings_load_dotenv_file(tmp_path: Path) -> None:

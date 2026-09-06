@@ -2,7 +2,7 @@
 
 ## 目的
 
-Phase A1.3 定义文档的解析器无关规范化数据模型。它为后续 chunking、检索和评估提供稳定的输入形状，但本阶段不执行 PDF 解析，也不保存规范化结果。
+Phase A1.3 定义文档的解析器无关规范化数据模型。A1.4 使用外部 MinerU CLI 将真实 PDF 转换为该模型，并把结果保存为本地解析 artifact。该模型为后续 chunking、检索和评估提供稳定的输入形状，但这些下游能力仍不在当前阶段。
 
 `knowledge_scope.documents.models.Document` 仍然是 A1.2 的上传元数据和存储记录。`CanonicalDocument` 不替代它，也不向 `documents` 表增加字段；上传文件名、SHA-256、知识库信息和 `storage_key` 不在规范化文档中重复保存。
 
@@ -34,11 +34,11 @@ v1 只接受以下五种 block，`type` 是 Pydantic discriminated union 的判�
 | --- | --- |
 | `title` | 非空白 `text`，表示标题或小节标题 |
 | `text` | 非空白 `text`，表示普通正文 |
-| `table` | 非空白 Markdown `markdown`，可选 `caption` |
+| `table` | `markdown` 或 `html` 二选一且非空白，可选 `caption` |
 | `formula` | 非空白 LaTeX `latex`；模型不执行公式 |
 | `image` | 非空 `asset_ref`，可选 `caption` |
 
-未知的 `type` 和未定义的额外字段都会被拒绝。图片只保留未来存储边界使用的 opaque `asset_ref`，不代表绝对文件路径，也不得包含 `.` 或 `..` 路径段（支持检查 POSIX 和 Windows 分隔符）；本阶段不提取图片，也不实现图片存储。
+未知的 `type` 和未定义的额外字段都会被拒绝。表格保留为非空 Markdown 或原始 HTML，不在 adapter 中做脆弱的格式转换。图片只保留存储边界使用的 opaque `asset_ref`，不代表绝对文件路径，也不得包含 `.` 或 `..` 路径段（支持检查 POSIX 和 Windows 分隔符）；A1.4 会把它限制在对应 MinerU artifact 目录内的相对引用。
 
 ## 坐标约定
 
@@ -60,7 +60,7 @@ CanonicalDocument.document_id
 
 模型通过 Pydantic v2 提供 JSON 兼容的 `model_dump_json()` 和 `model_validate_json()` 往返。`schema_version` 独立于任何 parser/package 版本；规范变化时应显式增加兼容版本并更新校验规则。
 
-MinerU 尚未集成，生产代码目前不会把任何 PDF 转换为此模型，也没有规范化结果的数据库或文件持久化。A1.4 的 adapter 才负责调用具体解析器、转换页面与 block 内容、归一化坐标、生成应用控制的 ID，并在输出前完成本规范校验。解析器特有字段不应泄漏到 CanonicalDocument。
+A1.4 通过 subprocess 调用外部 MinerU `pipeline` 后端，生产代码不导入 MinerU 的 Python 内部模块。adapter 只读取稳定的 `*_content_list.json`，转换页面与 block 内容、归一化坐标、生成应用控制的 ID，并在输出前完成本规范校验；`middle/raw` 和其他 MinerU 文件作为独立调试 artifact 保存。规范化结果当前保存为 `data/parsing/<document_id>/canonical.json`，不增加数据库字段或迁移。解析器特有字段不应泄漏到 CanonicalDocument。
 
 下面是一个合成数据示例，不代表生产解析结果：
 

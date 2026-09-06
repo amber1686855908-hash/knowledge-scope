@@ -1,0 +1,3 @@
+# External runtime only; install outside the KnowledgeScope environment.
+mineru[pipeline]==3.4.5
+six==1.17.0

@@ -45,12 +45,13 @@ class StagedUpload:
 
 
 @dataclass(frozen=True, slots=True)
-class TrashedFile:
-    """A document moved aside while its database row is being deleted."""
+class TrashedResource:
+    """An application-owned file or directory moved aside during deletion."""
 
     original_path: Path
     trash_path: Path
     directory: Path
+    is_directory: bool
 
 
 def documents_root(data_dir: Path) -> Path:
@@ -158,10 +159,13 @@ def remove_file(path: Path) -> None:
         path.unlink()
 
 
-def move_to_trash(final_path: Path, data_dir: Path) -> TrashedFile:
-    """Move a document aside before deleting its database metadata."""
-    if not final_path.is_file():
-        raise StorageError("document file is missing")
+def move_to_trash(final_path: Path, data_dir: Path) -> TrashedResource:
+    """Move an application-owned file or directory aside before DB deletion."""
+    if final_path.is_symlink() or not final_path.exists():
+        raise StorageError("document resource is missing or invalid")
+    is_directory = final_path.is_dir()
+    if not is_directory and not final_path.is_file():
+        raise StorageError("document resource is invalid")
     trash_directory = Path(tempfile.mkdtemp(prefix=".delete-", dir=documents_root(data_dir)))
     trash_path = trash_directory / "payload"
     try:
@@ -169,23 +173,27 @@ def move_to_trash(final_path: Path, data_dir: Path) -> TrashedFile:
     except BaseException:
         shutil.rmtree(trash_directory)
         raise
-    return TrashedFile(
+    return TrashedResource(
         original_path=final_path,
         trash_path=trash_path,
         directory=trash_directory,
+        is_directory=is_directory,
     )
 
 
-def restore_from_trash(trashed: TrashedFile) -> None:
-    """Restore a moved file after a failed database deletion."""
+def restore_from_trash(trashed: TrashedResource) -> None:
+    """Restore a moved file or directory after a failed database deletion."""
     trashed.original_path.parent.mkdir(parents=True, exist_ok=True)
     os.replace(trashed.trash_path, trashed.original_path)
     trashed.directory.rmdir()
 
 
-def permanently_remove_trash(trashed: TrashedFile) -> None:
-    """Delete a committed document file and clean its empty directories."""
-    trashed.trash_path.unlink(missing_ok=True)
+def permanently_remove_trash(trashed: TrashedResource) -> None:
+    """Delete a committed file or directory and clean its empty staging parents."""
+    if trashed.is_directory:
+        shutil.rmtree(trashed.trash_path)
+    else:
+        trashed.trash_path.unlink(missing_ok=True)
     trashed.directory.rmdir()
     for directory in (trashed.original_path.parent, trashed.original_path.parent.parent):
         try:

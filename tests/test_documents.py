@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient, Response
+from sqlalchemy.exc import SQLAlchemyError
 
 from knowledge_scope.documents.storage import storage_key_for_document
 
@@ -291,6 +292,72 @@ async def test_delete_removes_document_metadata_and_file_and_allows_empty_kb_del
     assert knowledge_base_delete_response.status_code == 204
     assert not stored_path.exists()
     assert not stored_path.parent.exists()
+    assert not (test_data_dir / "parsing" / document["id"]).exists()
     assert (
         await client.get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document['id']}")
     ).status_code == 404
+
+
+@pytest.mark.anyio
+async def test_delete_removes_parsing_artifacts_with_document(
+    client: AsyncClient,
+    test_data_dir: Path,
+) -> None:
+    knowledge_base = await create_knowledge_base(client)
+    knowledge_base_id = UUID(str(knowledge_base["id"]))
+    document = (await upload_pdf(client, str(knowledge_base_id))).json()
+    document_id = UUID(document["id"])
+    stored_path = test_data_dir / storage_key_for_document(knowledge_base_id, document_id)
+    parsing_dir = test_data_dir / "parsing" / str(document_id)
+    (parsing_dir / "mineru" / "images").mkdir(parents=True)
+    (parsing_dir / "canonical.json").write_text("{}", encoding="utf-8")
+    (parsing_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    (parsing_dir / "mineru" / "images" / "image.png").write_bytes(b"asset")
+
+    response = await client.delete(
+        f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}"
+    )
+
+    assert response.status_code == 204
+    assert not stored_path.exists()
+    assert not parsing_dir.exists()
+    assert not list((test_data_dir / "documents").glob(".delete-*"))
+    assert (
+        await client.get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}")
+    ).status_code == 404
+
+
+@pytest.mark.anyio
+async def test_delete_restores_source_and_parsing_artifacts_when_database_delete_fails(
+    client: AsyncClient,
+    test_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    knowledge_base = await create_knowledge_base(client)
+    knowledge_base_id = UUID(str(knowledge_base["id"]))
+    document = (await upload_pdf(client, str(knowledge_base_id))).json()
+    document_id = UUID(document["id"])
+    stored_path = test_data_dir / storage_key_for_document(knowledge_base_id, document_id)
+    parsing_dir = test_data_dir / "parsing" / str(document_id)
+    (parsing_dir / "mineru").mkdir(parents=True)
+    (parsing_dir / "canonical.json").write_text("canonical", encoding="utf-8")
+    (parsing_dir / "mineru" / "raw.json").write_text("raw", encoding="utf-8")
+
+    async def fail_commit(_session: object) -> None:
+        raise SQLAlchemyError("simulated database failure")
+
+    monkeypatch.setattr("sqlalchemy.ext.asyncio.AsyncSession.commit", fail_commit)
+
+    response = await client.delete(
+        f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}"
+    )
+
+    assert response.status_code == 500
+    assert "文档删除失败" in response.json()["detail"]
+    assert stored_path.read_bytes() == VALID_PDF
+    assert (parsing_dir / "canonical.json").read_text(encoding="utf-8") == "canonical"
+    assert (parsing_dir / "mineru" / "raw.json").read_text(encoding="utf-8") == "raw"
+    assert not list((test_data_dir / "documents").glob(".delete-*"))
+    assert (
+        await client.get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}")
+    ).status_code == 200

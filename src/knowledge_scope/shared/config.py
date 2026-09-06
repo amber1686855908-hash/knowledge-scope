@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+asyncpg://knowledgescope:knowledgescope@127.0.0.1:5433/knowledgescope"
     )
+    mineru_command: str = Field(default="mineru", min_length=1)
+    mineru_timeout_seconds: int = Field(default=1800, ge=1)
 
 
 def get_settings() -> Settings:
