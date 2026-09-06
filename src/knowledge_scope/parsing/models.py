@@ -113,6 +113,9 @@ class ImageBlock(BlockBase):
     @classmethod
     def validate_asset_ref(cls, value: str) -> str:
         value = _require_non_blank(value, "asset_ref")
+        path_segments = value.replace("\\", "/").split("/")
+        if any(segment in {".", ".."} for segment in path_segments):
+            raise ValueError("asset_ref must not contain '.' or '..' path segments")
         windows_path = PureWindowsPath(value)
         if (
             value.startswith(("/", "\\"))
@@ -139,10 +142,8 @@ class Page(_CanonicalBaseModel):
     @model_validator(mode="after")
     def validate_reading_order(self) -> Self:
         orders = [block.reading_order for block in self.blocks]
-        if len(orders) != len(set(orders)):
-            raise ValueError("reading_order must be unique within a page")
-        if orders != sorted(orders):
-            raise ValueError("blocks must be ordered by reading_order")
+        if orders != list(range(len(self.blocks))):
+            raise ValueError("reading_order must be contiguous from zero within a page")
         return self
 
 

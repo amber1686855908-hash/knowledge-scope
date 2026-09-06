@@ -125,24 +125,29 @@ def test_document_requires_at_least_one_page() -> None:
         CanonicalDocument(document_id=DOCUMENT_ID, pages=[])
 
 
-def test_page_rejects_duplicate_or_unordered_reading_orders() -> None:
+@pytest.mark.parametrize("reading_orders", [[1], [0, 2], [2, 3], [0, 0], [1, 0]])
+def test_page_rejects_non_contiguous_reading_orders(reading_orders: list[int]) -> None:
     with pytest.raises(ValidationError):
         Page(
             page_number=1,
             blocks=[
-                TextBlock(block_id="b1", reading_order=0, text="第一段"),
-                TextBlock(block_id="b2", reading_order=0, text="重复顺序"),
+                TextBlock(block_id=f"b{index}", reading_order=reading_order, text=f"内容{index}")
+                for index, reading_order in enumerate(reading_orders)
             ],
         )
 
-    with pytest.raises(ValidationError):
-        Page(
-            page_number=1,
-            blocks=[
-                TextBlock(block_id="b1", reading_order=1, text="后文"),
-                TextBlock(block_id="b2", reading_order=0, text="前文"),
-            ],
-        )
+
+@pytest.mark.parametrize("reading_orders", [[], [0], [0, 1, 2]])
+def test_page_accepts_zero_based_contiguous_reading_orders(reading_orders: list[int]) -> None:
+    page = Page(
+        page_number=1,
+        blocks=[
+            TextBlock(block_id=f"b{index}", reading_order=reading_order, text=f"内容{index}")
+            for index, reading_order in enumerate(reading_orders)
+        ],
+    )
+
+    assert [block.reading_order for block in page.blocks] == reading_orders
 
 
 def test_negative_reading_order_is_rejected() -> None:
@@ -185,12 +190,35 @@ def test_bounding_box_requires_normalized_positive_dimensions(
     "asset_ref",
     ["/tmp/image.png", "C:\\tmp\\image.png", "file:///tmp/image.png"],
 )
-def test_image_asset_ref_is_not_an_absolute_path_or_uri(asset_ref: str) -> None:
+def test_image_asset_ref_rejects_an_absolute_path_or_uri(asset_ref: str) -> None:
     with pytest.raises(ValidationError):
         ImageBlock(block_id="b1", reading_order=0, asset_ref=asset_ref)
 
-    image = ImageBlock(block_id="b1", reading_order=0, asset_ref="image-1")
-    assert image.asset_ref == "image-1"
+
+@pytest.mark.parametrize("asset_ref", ["image-1", "assets/image-1.png"])
+def test_image_asset_ref_accepts_opaque_relative_references(asset_ref: str) -> None:
+    image = ImageBlock(block_id="b1", reading_order=0, asset_ref=asset_ref)
+
+    assert image.asset_ref == asset_ref
+
+
+@pytest.mark.parametrize(
+    "asset_ref",
+    [
+        "../image.png",
+        "assets/../image.png",
+        r"..\image.png",
+        r"assets\..\image.png",
+        "./image.png",
+        "assets/./image.png",
+        r"assets\.\image.png",
+        ".",
+        "..",
+    ],
+)
+def test_image_asset_ref_rejects_dot_path_segments(asset_ref: str) -> None:
+    with pytest.raises(ValidationError):
+        ImageBlock(block_id="b1", reading_order=0, asset_ref=asset_ref)
 
 
 def test_schema_version_is_explicit_and_rejects_unknown_versions() -> None:

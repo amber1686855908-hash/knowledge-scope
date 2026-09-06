@@ -26,7 +26,7 @@ CanonicalDocument
 - `document_id` 使用现有上传记录的 UUID。嵌套的 `Page` 和 block 不重复保存文档 ID。
 - 至少存在一个 `Page`。`page_number` 从 1 开始，在文档中唯一、递增且连续。
 - `block_id` 是应用控制的非空 opaque ID，在一个文档内全局唯一，不使用 MinerU 或其他解析器的 ID。
-- `reading_order` 是页面内从 0 开始的非负整数；同一页面内唯一，`blocks` 数组按它递增排列。不同页面可以使用相同的序号。
+- `reading_order` 是页面内从 0 开始的连续整数，必须严格等于 `0, 1, ..., n-1`；空页面没有 reading-order 值。不同页面可以从 0 重新开始。
 
 v1 只接受以下五种 block，`type` 是 Pydantic discriminated union 的判别字段：
 
@@ -38,7 +38,7 @@ v1 只接受以下五种 block，`type` 是 Pydantic discriminated union 的判�
 | `formula` | 非空白 LaTeX `latex`；模型不执行公式 |
 | `image` | 非空 `asset_ref`，可选 `caption` |
 
-未知的 `type` 和未定义的额外字段都会被拒绝。图片只保留未来存储边界使用的 opaque `asset_ref`，不代表绝对文件路径；本阶段不提取图片，也不实现图片存储。
+未知的 `type` 和未定义的额外字段都会被拒绝。图片只保留未来存储边界使用的 opaque `asset_ref`，不代表绝对文件路径，也不得包含 `.` 或 `..` 路径段（支持检查 POSIX 和 Windows 分隔符）；本阶段不提取图片，也不实现图片存储。
 
 ## 坐标约定
 
