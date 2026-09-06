@@ -21,7 +21,7 @@ Phase A1.5 已完成，目前提供：
 - 解析器会读取 `*_content_list.json`，将页面、文本、标题、表格、公式、图片和可读列表转换为 `CanonicalDocument`，对页码、reading order、bbox、block ID 和图片/表格 artifact 引用执行校验，并报告跳过项、unsupported 项、`bbox_clamped`、表格降级统计和 warning 数量。
 - 规范化结果和 MinerU 原始输出分别保存在 `data/parsing/<document_id>/canonical.json`、`manifest.json` 和 `mineru/` 下；文件使用 staging 与原子提升，原始上传仍保存在 `data/documents/`。
 
-Phase A1.5 已完成只读的全量解析基准：清单包含 257 个 PDF 条目、255 个唯一内容、1,580,533,246 字节和 3,833 个物理页，覆盖 9 个学科且没有未分类条目；2 组重复 SHA-256 内容只解析代表文件，重复条目记录为 `skipped_duplicate`。首次运行中 244 个唯一内容成功、11 个因 MinerU 表格缺少 `table_body` 被严格 adapter 拒绝，成功率为 95.6863%；随后只重试这 11 个失败代表，最新结果为 255/255 个唯一内容均完成 `CanonicalDocument` 适配。100% 表示流水线完成，不是标注数据支持的解析准确率；其中 13 个表格条目因同时缺少结构化内容和可用资产而以 `table_missing_content` warning 降级。基准支持逐条 checkpoint、`--resume`、显式重试失败项和 `failures|all|none` 原始结果保留策略；运行产物位于被忽略的 `data/benchmarks/a1-5/`，汇总见 [A1.5 基准报告](docs/benchmarks/a1-5-corpus-parsing.md)。
+Phase A1.5 已完成只读的全量解析基准：清单包含 257 个 PDF 条目、255 个唯一内容、1,580,533,246 字节和 3,833 个物理页，覆盖 9 个学科且没有未分类条目；2 个重复内容条目只解析代表文件，重复条目记录为 `skipped_duplicate`。首次运行中 244 个唯一内容成功、11 个因 MinerU 表格缺少 `table_body` 被严格 adapter 拒绝，成功率为 95.6863%；随后只重试这 11 个失败代表，最新结果为 255/255 个唯一内容均完成 `CanonicalDocument` 适配。100% 表示流水线完成，不是标注数据支持的解析准确率；其中 13 个表格条目因同时缺少结构化内容和可用资产而以 `table_missing_content` warning 降级。基准支持逐条 checkpoint、`--resume`、显式重试失败项和 `failures|all|none` 原始结果保留策略；运行产物位于被忽略的 `data/benchmarks/a1-5/`，汇总见 [A1.5 基准报告](docs/benchmarks/a1-5-corpus-parsing.md)。
 
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)。
 

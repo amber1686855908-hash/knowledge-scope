@@ -59,7 +59,7 @@ Phase A1.5 对外部只读教材 PDF 语料执行了 MinerU → `CanonicalDocume
 - `benchmark-parsing` 复用现有 `mineru_runner.py`、`mineru_adapter.py` 和 `CanonicalDocument` 校验，不复制解析逻辑。
 - 每个 terminal 结果立即追加并 `fsync` 到 `results.jsonl`；`run.json` 保存兼容配置、运行环境和进度。
 - `--resume` 会校验 inventory fingerprint、MinerU 配置、筛选条件和保留策略，并跳过已有成功/重复结果；失败项只有在显式加入 `--retry-failed` 时才重试。
-- 结果尾部出现截断或非法 JSON 时，恢复逻辑保留已确认记录并修复 JSONL 尾部。
+- 结果尾部出现截断或非法 JSON 时，恢复逻辑保留全部已确认的合法历史记录并修复 JSONL 尾部；运行时按 `benchmark_item_id` 使用最新记录。
 - 执行固定为并发数 1，运行产物只写入被 Git 忽略的 `data/benchmarks/a1-5/`，不使用正常产品的 `data/parsing/`。
 - 默认保留失败项和自动识别的坏例候选的 raw MinerU 输出；普通成功项保留 canonical JSON，清理 raw 输出。也支持 `all` 和 `none`。
 
@@ -155,7 +155,9 @@ warning 分类为：`bbox_clamped` 54、`empty_content` 761、`unsupported_type`
 
 ## 学科汇总
 
-下表的成功/失败、页数和 block 统计按唯一内容代表文件计算；清单条目数单独保留重复文件。
+### 首次运行学科汇总（hardening 前）
+
+以下表格是首次运行结果；其中成功/失败、页数和 block 统计按唯一内容代表文件计算，清单条目数单独保留重复文件。
 
 | 学科 | 清单条目 | 唯一内容 | 唯一内容页 | 成功/失败 | 中位 MinerU s | pages/s | blocks（标题/正文/表/公式/图） | unsupported / warnings / clamp |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |
@@ -169,7 +171,7 @@ warning 分类为：`bbox_clamped` 54、`empty_content` 761、`unsupported_type`
 | 英语 | 60 | 60 | 619 | 55 / 5 | 21.204503 | 0.483547 | 1,604 / 5,624 / 48 / 0 / 801 | 128 / 143 / 15 |
 | 语文 | 20 | 20 | 407 | 20 / 0 | 24.511768 | 0.817679 | 266 / 3,304 / 5 / 0 / 143 | 112 / 117 / 5 |
 
-数学产生了本次最多的公式 blocks（1,123 / 1,259）；图片 blocks 的绝对数量在地理和历史较高。以上是输出分布，不是内容识别质量或准确率评价。
+首次运行中，数学产生了最多的公式 blocks（1,123 / 1,259）；图片 blocks 的绝对数量在地理和历史较高。以上是首次运行的输出分布，不是内容识别质量或准确率评价。
 
 ### 最终学科汇总
 

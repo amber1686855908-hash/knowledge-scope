@@ -282,17 +282,16 @@ def _load_inventory(path: Path) -> tuple[InventoryItem, ...]:
     return tuple(items)
 
 
-def _load_results(path: Path) -> dict[str, dict[str, object]]:
-    """Load the latest result per item and repair a truncated/corrupt tail."""
+def _read_result_records(path: Path) -> list[dict[str, object]]:
+    """Read valid result history and repair a truncated or corrupt tail."""
     if not path.exists():
-        return {}
+        return []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError) as error:
         raise BenchmarkError("benchmark results could not be read") from error
 
     records: list[dict[str, object]] = []
-    record_positions: dict[str, int] = {}
     corrupted = False
     for line in lines:
         if not line.strip():
@@ -308,14 +307,16 @@ def _load_results(path: Path) -> dict[str, dict[str, object]]:
         except (TypeError, json.JSONDecodeError):
             corrupted = True
             break
-        if item_id in record_positions:
-            records[record_positions[item_id]] = record
-        else:
-            record_positions[item_id] = len(records)
-            records.append(record)
+        records.append(record)
 
     if corrupted:
         _write_jsonl(path, records)
+    return records
+
+
+def _load_results(path: Path) -> dict[str, dict[str, object]]:
+    """Load the latest result per item while preserving repaired history on disk."""
+    records = _read_result_records(path)
     return {record["benchmark_item_id"]: record for record in records}
 
 
@@ -441,10 +442,8 @@ def _inventory_summary(items: tuple[InventoryItem, ...]) -> dict[str, object]:
     }
 
 
-def inventory_corpus(corpus_root: Path, workspace: Path) -> InventoryResult:
-    """Scan, hash, classify, and persist a deterministic corpus inventory."""
-    resolved_corpus = _resolved_corpus_root(corpus_root)
-    resolved_workspace = _resolved_workspace(workspace, resolved_corpus)
+def _build_inventory(resolved_corpus: Path) -> InventoryResult:
+    """Scan, hash, and classify a deterministic inventory without filesystem writes."""
     items: list[InventoryItem] = []
     try:
         candidates = sorted(
@@ -496,15 +495,23 @@ def inventory_corpus(corpus_root: Path, workspace: Path) -> InventoryResult:
         fingerprint_digest.update(_json_line(item.as_record()).encode("utf-8"))
         fingerprint_digest.update(b"\n")
     fingerprint = fingerprint_digest.hexdigest()
-    _write_jsonl(
-        resolved_workspace / "corpus-manifest.jsonl",
-        (item.as_record() for item in result_items),
-    )
     return InventoryResult(
         items=result_items,
         fingerprint=fingerprint,
         summary=_inventory_summary(result_items),
     )
+
+
+def inventory_corpus(corpus_root: Path, workspace: Path) -> InventoryResult:
+    """Scan, hash, classify, and persist a deterministic corpus inventory."""
+    resolved_corpus = _resolved_corpus_root(corpus_root)
+    resolved_workspace = _resolved_workspace(workspace, resolved_corpus)
+    inventory = _build_inventory(resolved_corpus)
+    _write_jsonl(
+        resolved_workspace / "corpus-manifest.jsonl",
+        (item.as_record() for item in inventory.items),
+    )
+    return inventory
 
 
 def _select_items(
@@ -1266,9 +1273,10 @@ def aggregate_results(
 
 def run_benchmark(config: BenchmarkConfig, settings: Settings) -> BenchmarkOutcome:
     """Run or resume a sequential benchmark with an fsynced result checkpoint."""
-    inventory = inventory_corpus(config.corpus_root, config.workspace)
+    resolved_corpus = _resolved_corpus_root(config.corpus_root)
+    workspace = _resolved_workspace(config.workspace, resolved_corpus)
+    inventory = _build_inventory(resolved_corpus)
     selected_items = _select_items(inventory.items, config)
-    workspace = Path(config.workspace).resolve()
     run_path = workspace / "run.json"
     results_path = workspace / "results.jsonl"
     mineru_version = get_mineru_version(settings.mineru_command)
@@ -1309,33 +1317,47 @@ def run_benchmark(config: BenchmarkConfig, settings: Settings) -> BenchmarkOutco
             disk_preflight,
         )
         run_id = str(metadata["run_id"])
+        _write_jsonl(
+            workspace / "corpus-manifest.jsonl",
+            (item.as_record() for item in inventory.items),
+        )
         _write_json(run_path, metadata)
 
     _clear_staging(workspace)
     results = _load_results(results_path)
     representatives = _representatives(selected_items)
     for item in selected_items:
-        existing = results.get(item.benchmark_item_id)
-        if existing is not None:
-            status = existing.get("status")
-            if status in {"success", "skipped_duplicate"} or (
-                status in FAILURE_STATUSES and not config.retry_failed
-            ):
-                continue
-
         group_key = f"sha256:{item.sha256}" if item.sha256 else f"item:{item.benchmark_item_id}"
         representative = representatives[group_key]
-        if representative.benchmark_item_id != item.benchmark_item_id:
+        existing = results.get(item.benchmark_item_id)
+        result: dict[str, object] | None = None
+        if existing is not None:
+            status = existing.get("status")
+            if status == "skipped_duplicate":
+                if representative.benchmark_item_id == item.benchmark_item_id:
+                    continue
+                representative_result = results.get(representative.benchmark_item_id)
+                if representative_result is None:
+                    raise BenchmarkError(
+                        "duplicate representative was not checkpointed before duplicate"
+                    )
+                if existing.get("representative_status") == representative_result.get("status"):
+                    continue
+                result = _duplicate_result(item, representative, representative_result)
+            elif status == "success" or (status in FAILURE_STATUSES and not config.retry_failed):
+                continue
+
+        if result is None and representative.benchmark_item_id != item.benchmark_item_id:
             representative_result = results.get(representative.benchmark_item_id)
             if representative_result is None:
                 raise BenchmarkError(
                     "duplicate representative was not checkpointed before duplicate"
                 )
             result = _duplicate_result(item, representative, representative_result)
-        else:
+        elif result is None:
             result = _process_item(
                 item,
-                corpus_root=_resolved_corpus_root(config.corpus_root),
+                corpus_root=resolved_corpus,
                 workspace=workspace,
                 settings=settings,
                 raw_retention=config.raw_retention,

@@ -217,17 +217,121 @@ def test_resume_retries_failed_items_only_when_requested(
     assert outcome.aggregate["benchmark"]["successful_unique_pdfs"] == 1
 
 
-def test_corrupt_result_tail_is_repaired(tmp_path: Path) -> None:
+def test_incompatible_resume_does_not_replace_checkpoint_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    corpus = tmp_path / "corpus"
+    _write_pdf(corpus / "a.pdf", b"%PDF-a")
+    workspace = tmp_path / "workspace"
+    settings = _settings(tmp_path / "data")
+    monkeypatch.setattr(benchmark, "get_mineru_version", lambda _: "3.4.5")
+    monkeypatch.setattr(benchmark, "_git_commit", lambda: "a" * 40)
+    monkeypatch.setattr(benchmark, "_gpu_metadata", lambda: {"name": None, "driver_version": None})
+    monkeypatch.setattr(benchmark, "_process_item", lambda item, **_: _success_result(item))
+
+    benchmark.run_benchmark(
+        benchmark.BenchmarkConfig(corpus_root=corpus, workspace=workspace),
+        settings,
+    )
+    checkpoint_paths = {
+        name: (workspace / name).read_bytes()
+        for name in ("run.json", "results.jsonl", "corpus-manifest.jsonl")
+    }
+
+    _write_pdf(corpus / "b.pdf", b"%PDF-b")
+    with pytest.raises(benchmark.BenchmarkError, match="incompatible"):
+        benchmark.run_benchmark(
+            benchmark.BenchmarkConfig(corpus_root=corpus, workspace=workspace, resume=True),
+            settings,
+        )
+
+    assert {name: (workspace / name).read_bytes() for name in checkpoint_paths} == checkpoint_paths
+
+
+def test_resume_updates_duplicate_metadata_after_representative_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    corpus = tmp_path / "corpus"
+    shared = b"%PDF-shared"
+    _write_pdf(corpus / "a.pdf", shared)
+    _write_pdf(corpus / "b.pdf", shared)
+    workspace = tmp_path / "workspace"
+    settings = _settings(tmp_path / "data")
+    monkeypatch.setattr(benchmark, "get_mineru_version", lambda _: "3.4.5")
+    monkeypatch.setattr(benchmark, "_git_commit", lambda: "a" * 40)
+    monkeypatch.setattr(benchmark, "_gpu_metadata", lambda: {"name": None, "driver_version": None})
+    calls: list[str] = []
+    fail_once = True
+
+    def failed_then_success(item: benchmark.InventoryItem, **kwargs: object) -> dict[str, object]:
+        nonlocal fail_once
+        calls.append(item.basename)
+        if fail_once:
+            fail_once = False
+            return benchmark._failure_result(
+                item,
+                MineruRunnerError("MinerU exited with code 9"),
+                elapsed_seconds=0.2,
+                corpus_root=kwargs["corpus_root"],
+                workspace=kwargs["workspace"],
+                source_path=None,
+                raw_ref=None,
+            )
+        return _success_result(item)
+
+    monkeypatch.setattr(benchmark, "_process_item", failed_then_success)
+    benchmark.run_benchmark(
+        benchmark.BenchmarkConfig(corpus_root=corpus, workspace=workspace),
+        settings,
+    )
+    inventory = benchmark.inventory_corpus(corpus, tmp_path / "inventory")
+    representative, duplicate = inventory.items
+    first_results = [
+        json.loads(line)
+        for line in (workspace / "results.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert first_results[0]["status"] == "failed"
+    assert first_results[1]["status"] == "skipped_duplicate"
+    assert first_results[1]["representative_status"] == "failed"
+
+    calls.clear()
+    benchmark.run_benchmark(
+        benchmark.BenchmarkConfig(
+            corpus_root=corpus,
+            workspace=workspace,
+            resume=True,
+            retry_failed=True,
+        ),
+        settings,
+    )
+
+    assert calls == [representative.basename]
+    latest = benchmark._load_results(workspace / "results.jsonl")
+    assert latest[representative.benchmark_item_id]["status"] == "success"
+    assert latest[duplicate.benchmark_item_id]["status"] == "skipped_duplicate"
+    assert latest[duplicate.benchmark_item_id]["representative_status"] == "success"
+    assert len((workspace / "results.jsonl").read_text(encoding="utf-8").splitlines()) == 4
+
+
+def test_corrupt_result_tail_is_repaired_without_losing_history(tmp_path: Path) -> None:
     path = tmp_path / "results.jsonl"
-    valid = {"benchmark_item_id": "item-a", "status": "success"}
-    path.write_text(json.dumps(valid) + "\n{", encoding="utf-8")
+    failed = {"benchmark_item_id": "item-a", "status": "failed", "attempt": 1}
+    succeeded = {"benchmark_item_id": "item-a", "status": "success", "attempt": 2}
+    other = {"benchmark_item_id": "item-b", "status": "success", "attempt": 1}
+    valid_records = [failed, succeeded, other]
+    path.write_text(
+        "".join(f"{json.dumps(record)}\n" for record in valid_records) + "{",
+        encoding="utf-8",
+    )
 
     loaded = benchmark._load_results(path)
 
-    assert loaded == {"item-a": valid}
-    assert path.read_text(encoding="utf-8").strip() == json.dumps(
-        valid, separators=(",", ":"), sort_keys=True
-    )
+    assert loaded["item-a"] == succeeded
+    assert loaded["item-b"] == other
+    repaired_records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert repaired_records == valid_records
 
 
 def test_failure_and_warning_taxonomies_are_stable() -> None:
