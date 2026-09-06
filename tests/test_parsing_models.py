@@ -70,6 +70,29 @@ def test_valid_document_supports_all_v1_block_types() -> None:
     assert document.pages[0].blocks[4].asset_ref == "asset-image-1"
 
 
+def test_table_block_accepts_html_when_markdown_is_unavailable() -> None:
+    table = TableBlock(
+        block_id="table-1",
+        reading_order=0,
+        html="<table><tr><td>项目</td></tr></table>",
+    )
+
+    assert table.markdown is None
+    assert table.html == "<table><tr><td>项目</td></tr></table>"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"markdown": "| 项目 |\n| --- |", "html": "<table></table>"},
+    ],
+)
+def test_table_block_requires_one_content_representation(kwargs: dict[str, str]) -> None:
+    with pytest.raises(ValidationError):
+        TableBlock(block_id="table-1", reading_order=0, **kwargs)
+
+
 def test_json_round_trip_is_deterministic() -> None:
     document = make_mixed_document()
 

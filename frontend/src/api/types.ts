@@ -12,7 +12,7 @@ export interface HealthResponse {
 export interface MetaResponse {
   project_name: string;
   version: string;
-  phase: "A1.3";
+  phase: "A1.4";
   status: "foundation";
   config_status: "ok";
 }

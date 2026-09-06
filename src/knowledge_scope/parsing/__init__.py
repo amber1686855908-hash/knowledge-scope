@@ -1,1 +1,1 @@
-"""Parser-independent canonical document models."""
+"""Canonical document models and external parser integrations."""

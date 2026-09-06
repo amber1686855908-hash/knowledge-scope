@@ -78,16 +78,32 @@ class TextBlock(BlockBase):
 
 
 class TableBlock(BlockBase):
-    """A table represented by parser-independent Markdown."""
+    """A table represented by one portable textual serialization."""
 
     type: Literal["table"] = "table"
-    markdown: str = Field(min_length=1)
+    markdown: str | None = None
+    html: str | None = None
     caption: str | None = None
 
     @field_validator("markdown")
     @classmethod
-    def validate_markdown(cls, value: str) -> str:
+    def validate_markdown(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         return _require_non_blank(value, "markdown")
+
+    @field_validator("html")
+    @classmethod
+    def validate_html(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _require_non_blank(value, "html")
+
+    @model_validator(mode="after")
+    def validate_table_content(self) -> Self:
+        if (self.markdown is None) == (self.html is None):
+            raise ValueError("exactly one of markdown or html must be provided")
+        return self
 
 
 class FormulaBlock(BlockBase):
