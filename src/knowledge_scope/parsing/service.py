@@ -36,6 +36,8 @@ from .mineru_runner import (
 from .models import CANONICAL_SCHEMA_VERSION
 
 PARSING_DIRECTORY_NAME = "parsing"
+MAX_MANIFEST_WARNING_COUNT = 100
+MAX_MANIFEST_WARNING_LENGTH = 512
 
 
 class DocumentParseError(RuntimeError):
@@ -107,8 +109,28 @@ def _manifest(
     document_id: UUID,
     source_sha256: str,
     run_result: MineruRunResult,
-) -> dict[str, str]:
+    stats: AdapterStats,
+) -> dict[str, object]:
     document_ref = str(document_id)
+    parse_stats = {
+        "elapsed_seconds": run_result.elapsed_seconds,
+        "pages": stats.pages,
+        "mineru_input_items": stats.input_items,
+        "canonical_blocks": stats.canonical_blocks,
+        "title_blocks": stats.title_blocks,
+        "text_blocks": stats.text_blocks,
+        "tables": stats.tables,
+        "formulas": stats.formulas,
+        "images": stats.images,
+        "skipped_auxiliary": stats.skipped_auxiliary,
+        "unsupported_items": stats.unsupported_items,
+        "bbox_clamped": stats.bbox_clamped,
+        "warning_count": len(stats.warnings),
+        "warnings": [
+            warning[:MAX_MANIFEST_WARNING_LENGTH]
+            for warning in stats.warnings[:MAX_MANIFEST_WARNING_COUNT]
+        ],
+    }
     return {
         "document_id": document_ref,
         "source_sha256": source_sha256,
@@ -119,6 +141,7 @@ def _manifest(
         "parsed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "canonical_ref": f"parsing/{document_ref}/canonical.json",
         "raw_ref": f"parsing/{document_ref}/mineru",
+        "parse_stats": parse_stats,
     }
 
 
@@ -176,6 +199,7 @@ def parse_document_file(
                     document_id=document_id,
                     source_sha256=source_sha256,
                     run_result=run_result,
+                    stats=adapted.stats,
                 ),
                 ensure_ascii=False,
                 indent=2,

@@ -13,6 +13,24 @@ from time import perf_counter
 MINERU_BACKEND = "pipeline"
 MINERU_OUTPUT_MODE = "auto"
 MINERU_VERSION_TIMEOUT_SECONDS = 30
+RUNTIME_ENVIRONMENT_KEYS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "LANG",
+        "LD_LIBRARY_PATH",
+        "CUDA_VISIBLE_DEVICES",
+        "CUDA_HOME",
+        "CUDA_PATH",
+        "NVIDIA_VISIBLE_DEVICES",
+        "NVIDIA_DRIVER_CAPABILITIES",
+        "XDG_CACHE_HOME",
+        "MODELSCOPE_CACHE",
+        "HF_HOME",
+        "TORCH_HOME",
+        "MINERU_TOOLS_CONFIG_JSON",
+    }
+)
 
 
 class MineruRunnerError(RuntimeError):
@@ -39,7 +57,11 @@ def _validated_command(command: str) -> str:
 
 
 def _runtime_environment(command: str) -> dict[str, str]:
-    environment = os.environ.copy()
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key in RUNTIME_ENVIRONMENT_KEYS or key.startswith("LC_")
+    }
     environment["MINERU_MODEL_SOURCE"] = "local"
 
     if "MINERU_TOOLS_CONFIG_JSON" not in environment:

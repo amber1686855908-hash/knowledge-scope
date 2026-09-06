@@ -51,3 +51,5 @@
 ## 结论与限制
 
 本阶段已经证明外部 MinerU CLI、真实结构化输出、adapter、canonical 校验、实际 GPU 使用和原子 artifact 发布可以在本机工作；9/9 代表样本均成功。当前流程仍是开发者 CLI 单文档触发，不会在上传请求中自动解析，也没有前端解析按钮、异步任务队列、chunking、embedding、向量数据库、RAG、GraphRAG 或准确率/吞吐 benchmark。外部运行时需要按 [requirements/mineru.txt](../../requirements/mineru.txt) 安装，A1.5 再进行更大规模 corpus benchmark。
+
+A1.4 hardening 另外使用临时开发文档完成了一次单文档回归：真实 CLI 成功解析 10 页并生成 198 个 canonical blocks，`manifest.json` 成功持久化 `parse_stats`（4 个 warning）；随后通过 Document DELETE 验证原始 PDF 和对应的 `data/parsing/<document_id>/` 均被清理。该回归未加入新的语料文件，也未改变上述 9 个样本结果。

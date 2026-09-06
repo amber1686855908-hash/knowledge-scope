@@ -77,9 +77,9 @@ data/
                 └── images/
 ```
 
-MinerU 原始输出、Markdown、middle/model 文件、日志和图片资产保留在 `mineru/` 下，供调试和复现使用。`canonical.json` 和 `manifest.json` 先写入随机 staging 目录，再原子提升到文档目录；失败解析会清理 staging，不会留下看似成功的 canonical 文件。原始上传仍位于 `data/documents/`，不会被覆盖。
+MinerU 原始输出、Markdown、middle/model 文件、日志和图片资产保留在 `mineru/` 下，供调试和复现使用。`canonical.json` 和 `manifest.json` 先写入随机 staging 目录，再原子提升到文档目录；失败解析会清理 staging，不会留下看似成功的 canonical 文件。删除 Document 时，API 会先将原始 PDF 和存在的 `data/parsing/<document_id>/` 一起移入应用控制的临时 staging，再提交数据库删除；数据库失败会尽力恢复两者，提交成功后永久清理。解析目录是可选的，不存在时不影响删除；解析与删除并发协调不在本阶段范围内。原始上传仍位于 `data/documents/`，不会被覆盖。
 
-manifest 只保存 `document_id`、源文件 SHA-256、parser、MinerU 版本、backend、canonical schema 版本、UTC 解析时间和仓库内相对 artifact 引用，不保存密钥、绝对路径或准确率。
+manifest 只保存 `document_id`、源文件 SHA-256、parser、MinerU 版本、backend、canonical schema 版本、UTC 解析时间、仓库内相对 artifact 引用，以及 `parse_stats`。`parse_stats` 包含 elapsed、各类 block/skip/unsupported 数、`bbox_clamped`、warning 数和最多 100 条截断后的 adapter warning；不保存密钥、绝对路径或准确率。
 
 ## Adapter 规则
 

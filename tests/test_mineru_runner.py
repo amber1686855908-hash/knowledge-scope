@@ -26,6 +26,8 @@ def test_runner_uses_argument_sequence_and_local_runtime(
         return subprocess.CompletedProcess(arguments, 0, "stdout", "stderr")
 
     monkeypatch.setattr("knowledge_scope.parsing.mineru_runner.subprocess.run", fake_run)
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_FAKE_SECRET", "must-not-leak")
+    monkeypatch.setenv("MODELSCOPE_CACHE", "/tmp/model-cache")
 
     result = run_mineru(source_path, output_dir, "mineru", timeout_seconds=600)
 
@@ -44,6 +46,10 @@ def test_runner_uses_argument_sequence_and_local_runtime(
     assert all(call[1]["shell"] is False for call in calls)
     assert all(call[1]["capture_output"] is True for call in calls)
     assert calls[1][1]["env"]["MINERU_MODEL_SOURCE"] == "local"
+    assert calls[1][1]["env"]["PATH"]
+    assert calls[1][1]["env"]["HOME"]
+    assert calls[1][1]["env"]["MODELSCOPE_CACHE"] == "/tmp/model-cache"
+    assert "KNOWLEDGE_SCOPE_FAKE_SECRET" not in calls[1][1]["env"]
     assert result.version == "3.4.5"
     assert result.backend == "pipeline"
     assert result.stdout == "stdout"
