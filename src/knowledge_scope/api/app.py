@@ -20,7 +20,7 @@ from .knowledge_bases import router as knowledge_bases_router
 from .schemas import HealthResponse, MetaResponse
 
 API_PREFIX: Final = "/api/v1"
-CURRENT_PHASE: Final = "A1.2"
+CURRENT_PHASE: Final = "A1.3"
 PROJECT_STATUS: Final = "foundation"
 
 
