@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from knowledge_scope.documents.models import Document
 from knowledge_scope.knowledge_bases.models import KnowledgeBase
 from knowledge_scope.shared.database import get_session
 
@@ -97,6 +98,19 @@ async def delete_knowledge_base(
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     knowledge_base = await _get_knowledge_base(session, knowledge_base_id)
+    document_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Document)
+            .where(Document.knowledge_base_id == knowledge_base.id)
+        )
+        or 0
+    )
+    if document_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="知识库中仍有文档, 请先删除文档",
+        )
     await session.delete(knowledge_base)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

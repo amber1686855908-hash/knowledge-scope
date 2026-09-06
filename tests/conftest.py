@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
 
@@ -109,15 +110,20 @@ async def postgres_test_engine(postgres_test_database: str) -> AsyncIterator[Asy
         await engine.dispose()
 
 
-@pytest.fixture
-async def client(
+@asynccontextmanager
+async def _test_client(
     postgres_test_database: str,
     postgres_test_engine: AsyncEngine,
+    data_dir: Path,
+    *,
+    max_upload_size_bytes: int = 50 * 1024 * 1024,
 ) -> AsyncIterator[AsyncClient]:
     settings = Settings(
         _env_file=None,
         environment="test",
         database_url=postgres_test_database,
+        data_dir=data_dir,
+        max_upload_size_bytes=max_upload_size_bytes,
     )
     application = create_app(settings, database_engine=postgres_test_engine)
 
@@ -143,3 +149,37 @@ async def client(
         finally:
             application.dependency_overrides.clear()
             await transaction.rollback()
+
+
+@pytest.fixture
+def test_data_dir(tmp_path: Path) -> Path:
+    return tmp_path / "data"
+
+
+@pytest.fixture
+async def client(
+    postgres_test_database: str,
+    postgres_test_engine: AsyncEngine,
+    test_data_dir: Path,
+) -> AsyncIterator[AsyncClient]:
+    async with _test_client(
+        postgres_test_database,
+        postgres_test_engine,
+        test_data_dir,
+    ) as http_client:
+        yield http_client
+
+
+@pytest.fixture
+async def limited_client(
+    postgres_test_database: str,
+    postgres_test_engine: AsyncEngine,
+    test_data_dir: Path,
+) -> AsyncIterator[AsyncClient]:
+    async with _test_client(
+        postgres_test_database,
+        postgres_test_engine,
+        test_data_dir,
+        max_upload_size_bytes=8,
+    ) as http_client:
+        yield http_client

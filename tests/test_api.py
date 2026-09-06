@@ -49,7 +49,7 @@ def test_meta_endpoint_reports_current_foundation_status() -> None:
     assert response.json() == {
         "project_name": "KnowledgeScope",
         "version": "0.1.0",
-        "phase": "A1.1",
+        "phase": "A1.2",
         "status": "foundation",
         "config_status": "ok",
     }

@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     environment: Environment = "development"
     log_level: LogLevel = "INFO"
     data_dir: Path = Path("data")
+    max_upload_size_bytes: int = Field(default=50 * 1024 * 1024, ge=1)
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     database_url: str = (
         "postgresql+asyncpg://knowledgescope:knowledgescope@127.0.0.1:5433/knowledgescope"

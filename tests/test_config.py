@@ -14,6 +14,7 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.environment == "development"
     assert settings.log_level == "INFO"
     assert settings.data_dir == Path("data")
+    assert settings.max_upload_size_bytes == 50 * 1024 * 1024
     assert settings.cors_origins == ["http://localhost:5173"]
     assert settings.database_url.endswith("/knowledgescope")
 
@@ -22,12 +23,14 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_ENVIRONMENT", "test")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_LOG_LEVEL", "DEBUG")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_DATA_DIR", "/tmp/knowledgescope-data")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_MAX_UPLOAD_SIZE_BYTES", "1024")
 
     settings = Settings(_env_file=None)
 
     assert settings.environment == "test"
     assert settings.log_level == "DEBUG"
     assert settings.data_dir == Path("/tmp/knowledgescope-data")
+    assert settings.max_upload_size_bytes == 1024
 
 
 def test_settings_load_dotenv_file(tmp_path: Path) -> None:

@@ -15,11 +15,12 @@ from knowledge_scope.shared import build_health_report, get_settings
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
 
+from .documents import router as documents_router
 from .knowledge_bases import router as knowledge_bases_router
 from .schemas import HealthResponse, MetaResponse
 
 API_PREFIX: Final = "/api/v1"
-CURRENT_PHASE: Final = "A1.1"
+CURRENT_PHASE: Final = "A1.2"
 PROJECT_STATUS: Final = "foundation"
 
 
@@ -47,6 +48,7 @@ def create_app(
     )
     application.state.db_engine = engine
     application.state.db_session_factory = create_session_factory(engine)
+    application.state.settings = runtime_settings
     application.add_middleware(
         CORSMiddleware,
         allow_origins=runtime_settings.cors_origins,
@@ -75,6 +77,7 @@ def create_app(
 
     application.include_router(router)
     application.include_router(knowledge_bases_router, prefix=API_PREFIX)
+    application.include_router(documents_router, prefix=API_PREFIX)
     return application
 
 
