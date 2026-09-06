@@ -2,7 +2,7 @@
 
 ## 目的
 
-Phase A1.3 定义文档的解析器无关规范化数据模型。A1.4 使用外部 MinerU CLI 将真实 PDF 转换为该模型，并把结果保存为本地解析 artifact。该模型为后续 chunking、检索和评估提供稳定的输入形状，但这些下游能力仍不在当前阶段。
+Phase A1.3 定义文档的解析器无关规范化数据模型。A1.4 使用外部 MinerU CLI 将真实 PDF 转换为该模型，并把结果保存为本地解析 artifact。Phase A1.6 在此模型之上增加了解析器无关的结构感知 `Chunk`，用于形成可追踪的分块 artifact；embedding、检索和评估仍不在当前阶段。分块约定见 [CanonicalDocument → Chunk 规范](canonical-document-chunking.md)。
 
 `knowledge_scope.documents.models.Document` 仍然是 A1.2 的上传元数据和存储记录。`CanonicalDocument` 不替代它，也不向 `documents` 表增加字段；上传文件名、SHA-256、知识库信息和 `storage_key` 不在规范化文档中重复保存。
 
@@ -54,7 +54,7 @@ CanonicalDocument.document_id
     -> Block.block_id
 ```
 
-因此，未来的 Chunk 只需要保存这条来源引用及必要的局部文本范围，不需要复制整份上传元数据。Chunk 模型不在 A1.3 实现。
+因此，Chunk 只需要保存这条来源引用及必要的局部文本范围，不需要复制整份上传元数据。A1.3 本身不实现 Chunk；Phase A1.6 已在独立的 `knowledge_scope.chunking` 边界中实现，且只通过 `source_block_ids` 依赖本规范的稳定 lineage。
 
 ## 版本化、解析器独立性与后续适配
 

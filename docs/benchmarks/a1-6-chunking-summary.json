@@ -1,0 +1,235 @@
+{
+  "phase": "A1.6",
+  "source": {
+    "canonical_workspace": "data/benchmarks/a1-5/",
+    "documents_processed": 255,
+    "documents_failed": 0,
+    "mineru_rerun": false,
+    "execution": "在内存中以 CPU-only 方式对已有 canonical artifact 执行 chunk_document 校验；没有持久化完整 chunk corpus。"
+  },
+  "first_pass_baseline": {
+    "config": {
+      "target_chars": 1200,
+      "max_chars": 1600,
+      "min_chars": 240
+    },
+    "documents": 255,
+    "pages": 3813,
+    "source_blocks": 46504,
+    "chunks": 8787,
+    "chunks_per_document": 34.459,
+    "chunk_chars": {
+      "count": 8787,
+      "min": 4,
+      "median": 229,
+      "p75": 502.0,
+      "p90": 983.4,
+      "p95": 1252.0,
+      "max": 2994
+    },
+    "pages_per_chunk": {
+      "count": 8787,
+      "min": 1,
+      "median": 1,
+      "p75": 1.0,
+      "p90": 2.0,
+      "p95": 2.0,
+      "max": 5
+    },
+    "source_blocks_per_chunk": {
+      "count": 8787,
+      "min": 1,
+      "median": 4,
+      "p75": 7.0,
+      "p90": 11.0,
+      "p95": 15.0,
+      "max": 62
+    },
+    "section_count": 8293,
+    "section_boundary_split_count": 8038,
+    "sections_split_by_budget": 325,
+    "section_boundary_violations": 0,
+    "oversized_single_block_fallback_count": 16,
+    "oversized_non_text_block_count": 10,
+    "chunks_over_max_chars": 10,
+    "chunks_containing_tables": 342,
+    "chunks_containing_formulas": 541,
+    "chunks_containing_images": 3644,
+    "source_coverage": {
+      "eligible": 46504,
+      "referenced": 46504,
+      "unreferenced_meaningful": 0,
+      "multiply_referenced": 16,
+      "coverage_rate": 1.0
+    },
+    "asset_ref_coverage": {
+      "source_asset_blocks": 6176,
+      "referenced_asset_blocks": 6176,
+      "coverage_rate": 1.0
+    },
+    "composition_review": {
+      "chunks_with_title_and_text": 3225,
+      "isolated_title_chunks": 1266,
+      "isolated_formula_chunks": 11,
+      "isolated_image_chunks": 22,
+      "cross_page_chunks": 1910
+    }
+  },
+  "hardening_audit": {
+    "title_context": {
+      "consecutive_title_run_counts": {
+        "1": 5784,
+        "2": 1000,
+        "3": 86,
+        "4": 19,
+        "5": 4
+      },
+      "consecutive_title_runs_length_at_least_2": 1109,
+      "title_blocks_in_consecutive_runs": 2354,
+      "initial_isolated_title_chunks": 1266,
+      "initial_isolated_from_consecutive_runs": 1249,
+      "initial_isolated_from_singleton_runs": 17,
+      "final_title_only_chunks": 3,
+      "final_title_only_with_later_substantive_block": 0,
+      "title_block_lineage": {
+        "eligible": 8138,
+        "referenced": 8138,
+        "multiply_referenced": 0,
+        "coverage_rate": 1.0
+      }
+    },
+    "images": {
+      "captionless_image_source_blocks": 4392,
+      "first_pass_synthetic_image_text": 4392,
+      "final_synthetic_image_text": 0,
+      "final_empty_text_asset_only_chunks": 20,
+      "final_empty_text_image_chunks": 20,
+      "final_asset_ref_coverage_rate": 1.0
+    },
+    "formulas": {
+      "initial_isolated_formula_chunks": 11,
+      "initial_oversized_atomic": 3,
+      "initial_algorithmically_isolated": 8,
+      "algorithmically_isolated_grouped_with_context": 6,
+      "final_formula_only_chunks": 5,
+      "final_oversized_atomic": 3,
+      "final_unavoidable_normal_formula_only": 2,
+      "cases": [
+        {"document_id": "916f3a4d-2535-5876-b5d8-4c70dff5d5c0", "source_block_ids": ["p7-b11", "p7-b12"], "first_pass": "B", "final_content_types": ["text", "formula"], "final_text_chars": 1378},
+        {"document_id": "4cd21fc7-96e6-5771-a873-f53fc25503d5", "source_block_ids": ["p2-b11", "p2-b12"], "first_pass": "B", "final_content_types": ["text", "formula"], "final_text_chars": 1147},
+        {"document_id": "a2ee146b-7f39-5b04-aff0-9dca13ea5c22", "source_block_ids": ["p1-b1", "p1-b2"], "first_pass": "B", "final_content_types": ["formula"], "final_text_chars": 824, "final_reason": "document starts with formulas and the next section boundary cannot be crossed"},
+        {"document_id": "184b119b-70de-536e-9e23-928b66a156c2", "source_block_ids": ["p10-b5"], "first_pass": "A", "final_content_types": ["formula"], "final_text_chars": 2049},
+        {"document_id": "4ccb7235-a68e-5159-8f8a-9b350428bde2", "source_block_ids": ["p11-b8"], "first_pass": "A", "final_content_types": ["formula"], "final_text_chars": 1668},
+        {"document_id": "a008b93a-219f-5105-a326-d8b44df95df7", "source_block_ids": ["p6-b7"], "first_pass": "B", "final_content_types": ["text", "formula"], "final_text_chars": 1552},
+        {"document_id": "a008b93a-219f-5105-a326-d8b44df95df7", "source_block_ids": ["p15-b3"], "first_pass": "B", "final_content_types": ["text", "formula"], "final_text_chars": 1530},
+        {"document_id": "a008b93a-219f-5105-a326-d8b44df95df7", "source_block_ids": ["p15-b4"], "first_pass": "B", "final_content_types": ["formula"], "final_text_chars": 953, "final_reason": "adjacent formulas cannot fit under max_chars"},
+        {"document_id": "f0764a22-bb45-5877-8945-d9a9135cbe38", "source_block_ids": ["p7-b4"], "first_pass": "A", "final_content_types": ["formula"], "final_text_chars": 2197},
+        {"document_id": "269da6d6-33d3-5db5-b7bc-ff996e6e8532", "source_block_ids": ["p4-b6"], "first_pass": "B", "final_content_types": ["text", "formula"], "final_text_chars": 1547},
+        {"document_id": "269da6d6-33d3-5db5-b7bc-ff996e6e8532", "source_block_ids": ["p6-b11"], "first_pass": "B", "final_content_types": ["title", "text", "image", "formula"], "final_text_chars": 1567}
+      ]
+    }
+  },
+  "final_hardening": {
+    "config": {
+      "target_chars": 1200,
+      "max_chars": 1600,
+      "min_chars": 240,
+      "splitting_policy_version": "section-block-v2"
+    },
+    "documents": 255,
+    "pages": 3813,
+    "source_blocks": 46504,
+    "chunks": 7524,
+    "chunks_per_document": 29.506,
+    "chunk_chars": {
+      "count": 7524,
+      "min": 0,
+      "median": 289.0,
+      "p75": 567.25,
+      "p90": 1097.0,
+      "p95": 1270.0,
+      "max": 3017
+    },
+    "pages_per_chunk": {
+      "count": 7524,
+      "min": 1,
+      "median": 1.0,
+      "p75": 2.0,
+      "p90": 2.0,
+      "p95": 2.0,
+      "max": 5
+    },
+    "source_blocks_per_chunk": {
+      "count": 7524,
+      "min": 1,
+      "median": 5.0,
+      "p75": 8.0,
+      "p90": 12.0,
+      "p95": 16.0,
+      "max": 62
+    },
+    "section_count": 7048,
+    "section_boundary_split_count": 6793,
+    "sections_split_by_budget": 322,
+    "section_boundary_violations": 0,
+    "oversized_single_block_fallback_count": 16,
+    "oversized_non_text_block_count": 10,
+    "chunks_over_max_chars": 10,
+    "single_source_non_text_chunks": 29,
+    "single_source_table_chunks": 9,
+    "single_source_formula_chunks": 4,
+    "single_source_image_chunks": 16,
+    "oversized_atomic_chunks": 10,
+    "oversized_atomic_table_chunks": 7,
+    "oversized_atomic_formula_chunks": 3,
+    "oversized_atomic_image_chunks": 0,
+    "chunks_containing_tables": 342,
+    "chunks_containing_formulas": 541,
+    "chunks_containing_images": 3643,
+    "source_coverage": {
+      "eligible": 46504,
+      "referenced": 46504,
+      "unreferenced_meaningful": 0,
+      "multiply_referenced": 16,
+      "coverage_rate": 1.0
+    },
+    "asset_ref_coverage": {
+      "source_asset_blocks": 6176,
+      "referenced_asset_blocks": 6176,
+      "coverage_rate": 1.0
+    },
+    "composition_review": {
+      "chunks_with_title_and_text": 6462,
+      "title_only_chunks": 3,
+      "formula_only_chunks": 5,
+      "captionless_image_only_chunks": 20,
+      "empty_text_asset_chunks": 20,
+      "cross_page_chunks": 1925
+    },
+    "subject_statistics": {
+      "化学": {"documents": 6, "pages": 127, "chunks": 210, "chunks_per_document": 35.0, "chunk_p50": 201.0, "chunk_p95": 1227.4, "tables_per_chunk": 0.2429, "formulas_per_chunk": 0.0762, "images_per_chunk": 0.6286},
+      "历史": {"documents": 32, "pages": 663, "chunks": 1682, "chunks_per_document": 52.562, "chunk_p50": 179.0, "chunk_p95": 654.95, "tables_per_chunk": 0.0107, "formulas_per_chunk": 0.0, "images_per_chunk": 0.5077},
+      "地理": {"documents": 30, "pages": 602, "chunks": 897, "chunks_per_document": 29.9, "chunk_p50": 245.0, "chunk_p95": 806.8, "tables_per_chunk": 0.0357, "formulas_per_chunk": 0.0, "images_per_chunk": 0.6321},
+      "思想政治": {"documents": 11, "pages": 252, "chunks": 591, "chunks_per_document": 53.727, "chunk_p50": 222.0, "chunk_p95": 630.5, "tables_per_chunk": 0.0102, "formulas_per_chunk": 0.0, "images_per_chunk": 0.5482},
+      "数学": {"documents": 53, "pages": 706, "chunks": 1313, "chunks_per_document": 24.774, "chunk_p50": 564.0, "chunk_p95": 1414.4, "tables_per_chunk": 0.1127, "formulas_per_chunk": 0.3526, "images_per_chunk": 0.4745},
+      "物理": {"documents": 29, "pages": 291, "chunks": 566, "chunks_per_document": 19.517, "chunk_p50": 281.0, "chunk_p95": 1204.75, "tables_per_chunk": 0.0371, "formulas_per_chunk": 0.1042, "images_per_chunk": 0.629},
+      "生物": {"documents": 14, "pages": 146, "chunks": 403, "chunks_per_document": 28.786, "chunk_p50": 179, "chunk_p95": 856.8, "tables_per_chunk": 0.0273, "formulas_per_chunk": 0.0074, "images_per_chunk": 0.4913},
+      "英语": {"documents": 60, "pages": 619, "chunks": 1491, "chunks_per_document": 24.85, "chunk_p50": 354, "chunk_p95": 1337.0, "tables_per_chunk": 0.0335, "formulas_per_chunk": 0.0, "images_per_chunk": 0.3139},
+      "语文": {"documents": 20, "pages": 407, "chunks": 371, "chunks_per_document": 18.55, "chunk_p50": 763.0, "chunk_p95": 1399.5, "tables_per_chunk": 0.0135, "formulas_per_chunk": 0.0, "images_per_chunk": 0.3261}
+    },
+    "manual_review": {
+      "subjects_reviewed": ["化学", "历史", "地理", "思想政治", "数学", "物理", "生物", "英语", "语文"],
+      "heading_plus_prose_representatives": 9,
+      "section_boundary_violations": 0,
+      "image_lineage_complete": true,
+      "synthetic_image_text": false,
+      "oversized_formula_blocks_reviewed": 3
+    }
+  },
+  "policy_comparison_first_pass": [
+    {"name": "tight", "target_chars": 900, "max_chars": 1400, "min_chars": 200, "chunks": 9084, "median_chunk_chars": 240.0, "p90_chunk_chars": 924.0, "p95_chunk_chars": 1017.0, "max_chunk_chars": 2994, "sections_split_by_budget": 483, "oversized_single_block_fallback_count": 20, "oversized_non_text_block_count": 13, "section_boundary_violations": 0, "source_coverage_rate": 1.0, "multiply_referenced": 20},
+    {"name": "default", "target_chars": 1200, "max_chars": 1600, "min_chars": 240, "chunks": 8787, "median_chunk_chars": 229, "p90_chunk_chars": 983.4, "p95_chunk_chars": 1252.0, "max_chunk_chars": 2994, "sections_split_by_budget": 325, "oversized_single_block_fallback_count": 16, "oversized_non_text_block_count": 10, "section_boundary_violations": 0, "source_coverage_rate": 1.0, "multiply_referenced": 16},
+    {"name": "spacious", "target_chars": 1500, "max_chars": 2000, "min_chars": 300, "chunks": 8593, "median_chunk_chars": 223, "p90_chunk_chars": 961.0, "p95_chunk_chars": 1480.4, "max_chunk_chars": 2994, "sections_split_by_budget": 216, "oversized_single_block_fallback_count": 6, "oversized_non_text_block_count": 9, "section_boundary_violations": 0, "source_coverage_rate": 1.0, "multiply_referenced": 6}
+  ],
+  "interpretation": "默认预算保持 1200 / 1600 / 240；本轮只修正标题上下文、资产型 chunk 表示和可安全的公式局部重平衡，不代表 retrieval accuracy。A2 才评估 embedding、vector retrieval、GraphRAG、multimodal retrieval、RAG、ChatBI 或 NL2SQL。"
+}

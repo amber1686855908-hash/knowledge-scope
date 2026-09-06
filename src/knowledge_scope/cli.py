@@ -13,6 +13,7 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from knowledge_scope import __version__
+from knowledge_scope.chunking.service import ChunkingError, chunk_document_by_id
 from knowledge_scope.evaluation.parsing_benchmark import (
     RAW_RETENTION_VALUES,
     BenchmarkConfig,
@@ -43,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="parse one uploaded PDF into canonical artifacts with MinerU",
     )
     parse_document.add_argument("document_id", type=UUID)
+    chunk_document = subparsers.add_parser(
+        "chunk-document",
+        help="chunk an existing canonical document into structural chunks",
+    )
+    chunk_document.add_argument("document_id", type=UUID)
 
     benchmark = subparsers.add_parser(
         "benchmark-parsing",
@@ -134,6 +140,30 @@ def _run_parse_document(document_id: UUID) -> int:
     return 0
 
 
+def _run_chunk_document(document_id: UUID) -> int:
+    """Run the developer-only canonical chunking workflow."""
+    try:
+        settings = get_settings()
+    except ValidationError:
+        print("config_status: invalid", file=sys.stderr)
+        return 1
+
+    try:
+        result = chunk_document_by_id(document_id, settings)
+    except ChunkingError as error:
+        print("chunk_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+
+    print("chunk_status: ok")
+    print(f"document_id: {result.document_id}")
+    print(f"chunks: {result.chunk_count}")
+    print(f"config_fingerprint: {result.config_fingerprint}")
+    print(f"chunks_ref: {result.chunks_ref}")
+    print(f"manifest_ref: {result.manifest_ref}")
+    return 0
+
+
 def _run_benchmark(args: argparse.Namespace) -> int:
     """Run inventory-only or resumable benchmark execution."""
     try:
@@ -194,6 +224,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_health()
     if args.command == "parse-document":
         return _run_parse_document(args.document_id)
+    if args.command == "chunk-document":
+        return _run_chunk_document(args.document_id)
     if args.command == "benchmark-parsing":
         return _run_benchmark(args)
 

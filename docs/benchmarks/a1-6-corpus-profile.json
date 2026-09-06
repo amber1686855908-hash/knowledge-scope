@@ -1,0 +1,119 @@
+{
+  "phase": "A1.6",
+  "source": {
+    "workspace": "data/benchmarks/a1-5/",
+    "canonical_directory": "data/benchmarks/a1-5/canonical/",
+    "documents": 255,
+    "validation": "每份 canonical JSON 都在测量前通过 CanonicalDocument.model_validate_json 校验。"
+  },
+  "definitions": {
+    "section": "首个 TitleBlock 前的前置内容，或从一个 TitleBlock 到下一个 TitleBlock 的 block 区间。",
+    "section_text": "渲染后的标题、正文、公式、表格 caption/表示和图片 caption 文本；只有 asset 的引用不贡献编造文本。",
+    "blocks_between_titles": "按页面和 reading order 计算的相邻 TitleBlock 之间严格处于中间的 block 数。",
+    "profile_scope": "字符数和结构数量是语料观察值，不是检索质量指标。"
+  },
+  "totals": {
+    "pages": 3813,
+    "blocks": 46504,
+    "block_counts_by_type": {
+      "formula": 1335,
+      "image": 6152,
+      "table": 409,
+      "text": 30470,
+      "title": 8138
+    }
+  },
+  "distributions": {
+    "text_block_chars": {
+      "count": 30470,
+      "min": 1,
+      "median": 55,
+      "p75": 111,
+      "p90": 187,
+      "p95": 249,
+      "max": 2833
+    },
+    "title_block_chars": {
+      "count": 8138,
+      "min": 1,
+      "median": 6,
+      "p75": 12,
+      "p90": 21,
+      "p95": 44,
+      "max": 173
+    },
+    "text_blocks_per_page": {
+      "count": 3813,
+      "min": 0,
+      "median": 7,
+      "p75": 11,
+      "p90": 15,
+      "p95": 18,
+      "max": 82
+    },
+    "blocks_between_successive_titles": {
+      "count": 7883,
+      "min": 0,
+      "median": 3,
+      "p75": 6,
+      "p90": 10,
+      "p95": 15,
+      "max": 134
+    },
+    "section_text_chars": {
+      "count": 8293,
+      "min": 0,
+      "median": 201,
+      "p75": 450,
+      "p90": 908,
+      "p95": 1452.4,
+      "max": 13138
+    },
+    "tables_per_section": {
+      "count": 8293,
+      "min": 0,
+      "median": 0,
+      "p75": 0,
+      "p90": 0,
+      "p95": 0,
+      "max": 11
+    },
+    "formulas_per_section": {
+      "count": 8293,
+      "min": 0,
+      "median": 0,
+      "p75": 0,
+      "p90": 0,
+      "p95": 0,
+      "max": 15
+    },
+    "images_per_section": {
+      "count": 8293,
+      "min": 0,
+      "median": 0,
+      "p75": 1,
+      "p90": 2,
+      "p95": 3,
+      "max": 19
+    }
+  },
+  "content_observations": {
+    "tables_with_html": 409,
+    "tables_with_markdown": 0,
+    "tables_with_asset_only": 0,
+    "tables_with_caption": 179,
+    "tables_without_caption": 230,
+    "empty_required_content_blocks": 0,
+    "blocks_without_rendered_text": 4392,
+    "images_without_caption": 4392,
+    "text_blocks_at_or_above_p95_chars": 1529,
+    "largest_text_block_chars": [2833, 2729, 2718, 2479, 2247, 2127, 1931, 1927, 1915, 1863]
+  },
+  "baseline_selection": {
+    "target_chars": 1200,
+    "max_chars": 1600,
+    "min_chars": 240,
+    "reason": "target_chars 位于观测到的 section P90 和 P95 之间；max_chars 略高于 section P95，同时仍让 block 边界优先。",
+    "qualification": "这是 A1.6 的字符型结构基线，不是 token budget，也不是 retrieval-optimal setting。"
+  }
+}

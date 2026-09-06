@@ -3,8 +3,10 @@ from uuid import UUID
 
 import pytest
 
+from knowledge_scope.chunking.models import ChunkedDocument
 from knowledge_scope.cli import main
 from knowledge_scope.parsing.mineru_adapter import AdapterStats
+from knowledge_scope.parsing.models import CanonicalDocument, Page, TextBlock
 from knowledge_scope.parsing.service import ParseResult
 from knowledge_scope.shared.config import Settings
 
@@ -80,6 +82,42 @@ def test_parse_document_command_reports_non_sensitive_statistics(
     assert "parser_version: 3.4.5" in output.out
     assert "canonical_validation: ok" in output.out
     assert "source_sha256" not in output.out
+
+
+def test_chunk_document_command_persists_chunks_from_existing_canonical_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    document_id = UUID("11111111-1111-1111-1111-111111111111")
+    data_dir = tmp_path / "data"
+    canonical_path = data_dir / "parsing" / str(document_id) / "canonical.json"
+    canonical_path.parent.mkdir(parents=True)
+    document = CanonicalDocument(
+        document_id=document_id,
+        pages=[
+            Page(
+                page_number=1,
+                blocks=[TextBlock(block_id="p1-b1", reading_order=0, text="正文")],
+            )
+        ],
+    )
+    canonical_path.write_text(document.model_dump_json(indent=2), encoding="utf-8")
+    monkeypatch.setattr(
+        "knowledge_scope.cli.get_settings",
+        lambda: Settings(_env_file=None, data_dir=data_dir),
+    )
+
+    exit_code = main(["chunk-document", str(document_id)])
+    output = capsys.readouterr()
+    stored = ChunkedDocument.model_validate_json(
+        (data_dir / "chunking" / str(document_id) / "chunks.json").read_text(encoding="utf-8")
+    )
+
+    assert exit_code == 0
+    assert "chunk_status: ok" in output.out
+    assert "chunks: 1" in output.out
+    assert len(stored.chunks) == 1
 
 
 def test_benchmark_inventory_only_requires_explicit_corpus(
