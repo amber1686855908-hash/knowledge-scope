@@ -1,1 +1,1 @@
-"""Package boundary reserved for document parsing added in a later phase."""
+"""Parser-independent canonical document models."""
