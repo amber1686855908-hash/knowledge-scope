@@ -11,3 +11,10 @@
 - In `frontend/`, use Vue 3 and TypeScript with Composition API and `<script setup>`; keep server state in Vue Query, use Pinia only for client/UI state, and do not add fake business data or unimplemented UI claims.
 - Add focused pytest coverage for behavior and run the Ruff checks, format check, and test suite before handing off changes.
 - Preserve unrelated working-tree changes and stage or commit only explicitly requested files.
+
+## Frontend product UI rules
+
+- Keep the normal UI content-first and user-facing: do not surface phase metadata, development diagnostics, raw API details, or unimplemented product areas.
+- Treat the global tokens in "frontend/src/styles/main.css" as the visual source of truth; prefer restrained surfaces, clear hierarchy, and concise Simplified Chinese copy.
+- Reuse the existing Element Plus components for forms, dialogs, confirmation, loading, and pagination. Keep server state in Vue Query and reserve Pinia for genuine UI state.
+- Add interaction feedback and keyboard-visible focus states while respecting "prefers-reduced-motion"; avoid decorative animation and "transition: all".

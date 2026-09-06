@@ -1,38 +1,47 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { RouterLink, useRoute } from "vue-router";
+import { RouterLink } from "vue-router";
 
 import { useUiStore } from "../stores/ui";
 
 const uiStore = useUiStore();
-const route = useRoute();
-const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? "76px" : "240px"));
-const pageTitle = computed(() => String(route.meta.title ?? "项目概览"));
-const breadcrumbItems = computed(() => {
-  const breadcrumb = route.meta.breadcrumb;
-  return Array.isArray(breadcrumb) ? breadcrumb.map(String) : [pageTitle.value];
-});
 </script>
 
 <template>
-  <div class="app-shell">
+  <div
+    class="app-shell"
+    :class="{ 'is-sidebar-collapsed': uiStore.sidebarCollapsed }"
+  >
     <aside
       class="app-sidebar"
-      :style="{ width: sidebarWidth }"
     >
       <div class="brand-block">
-        <div
-          class="brand-mark"
-          aria-hidden="true"
-        >
-          KS
-        </div>
-        <div
-          v-if="!uiStore.sidebarCollapsed"
-          class="brand-copy"
-        >
-          <span class="brand-name">KnowledgeScope</span>
-          <span class="brand-caption">知识工作区</span>
+        <div class="brand-header">
+          <RouterLink
+            to="/knowledge-bases"
+            class="brand-link"
+            aria-label="KnowledgeScope 知识库"
+          >
+            <span
+              class="brand-mark"
+              aria-hidden="true"
+            >K</span>
+            <div
+              v-if="!uiStore.sidebarCollapsed"
+              class="brand-copy"
+            >
+              <span class="brand-name">KnowledgeScope</span>
+              <span class="brand-caption">行业文档</span>
+            </div>
+          </RouterLink>
+          <button
+            class="collapse-button"
+            type="button"
+            aria-label="收起或展开侧边栏"
+            title="收起或展开侧边栏"
+            @click="uiStore.toggleSidebar"
+          >
+            <span aria-hidden="true">☰</span>
+          </button>
         </div>
       </div>
 
@@ -40,18 +49,6 @@ const breadcrumbItems = computed(() => {
         class="side-nav"
         aria-label="主导航"
       >
-        <RouterLink
-          to="/"
-          class="nav-item"
-          exact-active-class="is-active"
-          title="项目概览"
-        >
-          <span
-            class="nav-icon"
-            aria-hidden="true"
-          >⌂</span>
-          <span v-if="!uiStore.sidebarCollapsed">项目概览</span>
-        </RouterLink>
         <RouterLink
           to="/knowledge-bases"
           class="nav-item"
@@ -62,57 +59,15 @@ const breadcrumbItems = computed(() => {
             class="nav-icon"
             aria-hidden="true"
           >▦</span>
-          <span v-if="!uiStore.sidebarCollapsed">知识库</span>
+          <span
+            v-if="!uiStore.sidebarCollapsed"
+            class="nav-label"
+          >知识库</span>
         </RouterLink>
       </nav>
-
-      <div
-        v-if="!uiStore.sidebarCollapsed"
-        class="sidebar-footer"
-      >
-        <span>工作区</span>
-        <strong>KnowledgeScope</strong>
-      </div>
     </aside>
 
     <div class="app-content">
-      <header class="topbar">
-        <div class="topbar-left">
-          <button
-            class="collapse-button"
-            type="button"
-            aria-label="收起或展开侧边栏"
-            title="收起或展开侧边栏"
-            @click="uiStore.toggleSidebar"
-          >
-            <span aria-hidden="true">☰</span>
-          </button>
-          <div
-            class="breadcrumb"
-            aria-label="当前位置"
-          >
-            <span>KnowledgeScope</span>
-            <template
-              v-for="item in breadcrumbItems"
-              :key="item"
-            >
-              <span
-                class="breadcrumb-separator"
-                aria-hidden="true"
-              >/</span>
-              <span>{{ item }}</span>
-            </template>
-          </div>
-        </div>
-        <div class="topbar-status">
-          <span
-            class="status-dot"
-            aria-hidden="true"
-          />
-          <span>{{ pageTitle }}</span>
-        </div>
-      </header>
-
       <main class="main-content">
         <slot />
       </main>
@@ -124,39 +79,66 @@ const breadcrumbItems = computed(() => {
 .app-shell {
   display: flex;
   min-height: 100vh;
-  background: #f4f6f8;
+  background: var(--ks-bg);
 }
 
 .app-sidebar {
   display: flex;
-  flex: 0 0 auto;
+  width: 232px;
+  flex: 0 0 232px;
   flex-direction: column;
   overflow: hidden;
-  background: #ffffff;
-  border-right: 1px solid #e6e9ee;
+  background: var(--ks-surface);
+  border-right: 1px solid var(--ks-border);
+  transition: width var(--ks-duration-normal) var(--ks-ease-out),
+    flex-basis var(--ks-duration-normal) var(--ks-ease-out);
+}
+
+.is-sidebar-collapsed .app-sidebar {
+  width: 72px;
+  flex-basis: 72px;
 }
 
 .brand-block {
+  min-height: 80px;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+.brand-header {
   display: flex;
   align-items: center;
-  min-height: 84px;
+  justify-content: space-between;
+  min-height: 80px;
+  gap: 8px;
+}
+
+.brand-link {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  min-height: 48px;
   gap: 12px;
-  padding: 0 20px;
-  white-space: nowrap;
+  padding: 0 4px;
+  border-radius: var(--ks-radius-sm);
+}
+
+.brand-link:hover .brand-name {
+  color: var(--ks-accent-strong);
 }
 
 .brand-mark {
   display: grid;
-  flex: 0 0 36px;
-  width: 36px;
-  height: 36px;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
   place-items: center;
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  background: #24364b;
-  border-radius: 10px;
+  color: var(--ks-surface);
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  background: var(--ks-ink);
+  border-radius: 9px;
 }
 
 .brand-copy {
@@ -166,71 +148,54 @@ const breadcrumbItems = computed(() => {
 }
 
 .brand-name {
-  color: #1d2a3a;
+  color: var(--ks-ink);
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 720;
+  letter-spacing: -0.02em;
 }
 
 .brand-caption {
-  color: #8a96a6;
+  color: var(--ks-muted);
   font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .side-nav {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 18px 12px;
+  gap: 4px;
+  padding: 16px 12px;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  min-height: 44px;
+  min-height: 42px;
   gap: 12px;
   padding: 0 12px;
-  color: #6f7d8f;
+  color: var(--ks-muted);
   font-size: 14px;
-  font-weight: 600;
-  border-radius: 9px;
+  font-weight: 620;
+  border-radius: var(--ks-radius-sm);
+  transition: color var(--ks-duration-fast) var(--ks-ease-out),
+    background-color var(--ks-duration-fast) var(--ks-ease-out);
 }
 
 .nav-item:hover {
-  color: #24364b;
-  background: #f4f7fa;
+  color: var(--ks-ink);
+  background: var(--ks-surface-subtle);
 }
 
 .nav-item.is-active {
-  color: #24364b;
-  background: #eaf0f6;
+  color: var(--ks-accent-strong);
+  background: var(--ks-accent-soft);
 }
 
 .nav-icon {
   width: 18px;
-  color: #6f8398;
-  font-size: 18px;
+  color: currentColor;
+  font-size: 17px;
   line-height: 1;
   text-align: center;
-}
-
-.sidebar-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: auto 16px 20px;
-  padding: 13px 14px;
-  color: #7c8999;
-  font-size: 12px;
-  background: #f7f8fa;
-  border: 1px solid #edf0f3;
-  border-radius: 9px;
-}
-
-.sidebar-footer strong {
-  color: #24364b;
-  font-size: 13px;
 }
 
 .app-content {
@@ -240,25 +205,15 @@ const breadcrumbItems = computed(() => {
   flex-direction: column;
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 64px;
-  padding: 0 32px;
-  background: #ffffff;
-  border-bottom: 1px solid #e6e9ee;
+.is-sidebar-collapsed .brand-header {
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
 }
 
-.topbar-left,
-.topbar-status,
-.breadcrumb {
-  display: flex;
-  align-items: center;
-}
-
-.topbar-left {
-  gap: 18px;
+.is-sidebar-collapsed .brand-link {
+  flex: 0 0 auto;
 }
 
 .collapse-button {
@@ -267,64 +222,69 @@ const breadcrumbItems = computed(() => {
   height: 32px;
   padding: 0;
   place-items: center;
-  color: #607086;
+  color: var(--ks-muted);
   font-size: 16px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--ks-radius-sm);
   cursor: pointer;
+  transition: color var(--ks-duration-fast) var(--ks-ease-out),
+    background-color var(--ks-duration-fast) var(--ks-ease-out),
+    transform var(--ks-duration-fast) var(--ks-ease-out);
 }
 
 .collapse-button:hover {
-  color: #24364b;
-  background: #f2f5f8;
-}
-
-.breadcrumb {
-  gap: 10px;
-  color: #7c8999;
-  font-size: 13px;
-}
-
-.breadcrumb span:first-child {
-  color: #2d3e51;
-  font-weight: 650;
-}
-
-.breadcrumb-separator {
-  color: #c4cbd4;
-}
-
-.topbar-status {
-  gap: 8px;
-  color: #7c8999;
-  font-size: 12px;
-}
-
-.status-dot {
-  width: 7px;
-  height: 7px;
-  background: #4b9b77;
-  border-radius: 50%;
+  color: var(--ks-ink);
+  background: var(--ks-surface);
 }
 
 .main-content {
-  width: min(1180px, 100%);
+  width: min(1240px, 100%);
   margin: 0 auto;
-  padding: 38px 42px 56px;
+  padding: 40px 40px 64px;
 }
 
 @media (max-width: 900px) {
-  .topbar {
-    padding: 0 20px;
+  .main-content {
+    padding: 32px 24px 48px;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-sidebar,
+  .is-sidebar-collapsed .app-sidebar {
+    width: 68px;
+    flex-basis: 68px;
+  }
+
+  .brand-block {
+    padding: 0 12px;
+  }
+
+  .brand-header {
+    justify-content: center;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 0;
+  }
+
+  .brand-link {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .brand-copy,
+  .nav-label {
+    display: none;
+  }
+
+  .nav-item {
+    justify-content: center;
+    padding: 0;
   }
 
   .main-content {
-    padding: 28px 20px 42px;
-  }
-
-  .topbar-status {
-    display: none;
+    padding: 28px 18px 42px;
   }
 }
 </style>

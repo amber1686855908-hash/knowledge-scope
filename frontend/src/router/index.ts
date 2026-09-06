@@ -5,12 +5,7 @@ const router = createRouter({
   routes: [
     {
       path: "/",
-      name: "dashboard",
-      component: () => import("../views/DashboardView.vue"),
-      meta: {
-        title: "项目概览",
-        breadcrumb: ["项目概览"],
-      },
+      redirect: { name: "knowledge-bases" },
     },
     {
       path: "/knowledge-bases",
@@ -18,7 +13,6 @@ const router = createRouter({
       component: () => import("../views/KnowledgeBaseListView.vue"),
       meta: {
         title: "知识库",
-        breadcrumb: ["知识库"],
       },
     },
     {
@@ -26,8 +20,7 @@ const router = createRouter({
       name: "knowledge-base-detail",
       component: () => import("../views/KnowledgeBaseDetailView.vue"),
       meta: {
-        title: "知识库详情",
-        breadcrumb: ["知识库", "详情"],
+        title: "知识库",
       },
     },
     {
@@ -36,7 +29,6 @@ const router = createRouter({
       component: () => import("../views/NotFoundView.vue"),
       meta: {
         title: "页面不存在",
-        breadcrumb: ["页面不存在"],
       },
     },
   ],
