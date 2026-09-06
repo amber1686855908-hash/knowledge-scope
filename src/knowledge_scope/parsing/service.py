@@ -125,6 +125,8 @@ def _manifest(
         "skipped_auxiliary": stats.skipped_auxiliary,
         "unsupported_items": stats.unsupported_items,
         "bbox_clamped": stats.bbox_clamped,
+        "table_asset_only": stats.table_asset_only,
+        "table_missing_content": stats.table_missing_content,
         "warning_count": len(stats.warnings),
         "warnings": [
             warning[:MAX_MANIFEST_WARNING_LENGTH]

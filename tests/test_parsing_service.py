@@ -91,6 +91,8 @@ def test_parse_document_file_promotes_complete_artifacts(
         "skipped_auxiliary": 0,
         "unsupported_items": 1,
         "bbox_clamped": 0,
+        "table_asset_only": 0,
+        "table_missing_content": 0,
         "warning_count": 1,
         "warnings": ["item 2: unsupported or empty MinerU block type 'code'"],
     }

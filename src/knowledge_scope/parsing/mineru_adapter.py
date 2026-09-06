@@ -51,6 +51,8 @@ class AdapterStats:
     unsupported_items: int
     bbox_clamped: int = 0
     warnings: tuple[str, ...] = ()
+    table_asset_only: int = 0
+    table_missing_content: int = 0
 
     def as_dict(self) -> dict[str, int]:
         """Return concise CLI-friendly counts."""
@@ -66,6 +68,8 @@ class AdapterStats:
             "skipped_auxiliary": self.skipped_auxiliary,
             "unsupported_items": self.unsupported_items,
             "bbox_clamped": self.bbox_clamped,
+            "table_asset_only": self.table_asset_only,
+            "table_missing_content": self.table_missing_content,
             "warnings": len(self.warnings),
         }
 
@@ -198,33 +202,38 @@ def _asset_reference(
 
     artifact_root = artifact_dir.resolve()
     candidate_bases = (content_list_dir.resolve(), artifact_root)
+    outside_output = False
     for base in candidate_bases:
         candidate = (base.joinpath(*path_parts)).resolve()
         try:
             relative = candidate.relative_to(artifact_root)
         except ValueError:
+            outside_output = True
             continue
         if candidate.is_file():
             return relative.as_posix()
 
+    if outside_output:
+        raise MineruAdapterError(f"MinerU item {item_index} has an unsafe image asset path")
     raise MineruAdapterError(f"MinerU item {item_index} image asset is missing or outside output")
 
 
-def _validate_optional_asset(
+def _optional_asset_reference(
     item: Mapping[str, Any],
     *,
     item_index: int,
     content_list_dir: Path,
     artifact_dir: Path,
-) -> None:
+) -> str | None:
     raw_path = item.get("img_path")
-    if raw_path not in (None, ""):
-        _asset_reference(
-            raw_path,
-            item_index=item_index,
-            content_list_dir=content_list_dir,
-            artifact_dir=artifact_dir,
-        )
+    if raw_path in (None, ""):
+        return None
+    return _asset_reference(
+        raw_path,
+        item_index=item_index,
+        content_list_dir=content_list_dir,
+        artifact_dir=artifact_dir,
+    )
 
 
 def _base_block_fields(
@@ -257,6 +266,8 @@ def _map_item(
     artifact_dir: Path,
     warnings: list[str],
     bbox_clamps: list[int],
+    table_asset_only: list[int],
+    table_missing_content: list[int],
 ) -> CanonicalBlock | None:
     block_type = item["type"]
     base_fields = _base_block_fields(
@@ -283,25 +294,43 @@ def _map_item(
 
     if block_type == "table":
         table_body = item.get("table_body")
+        caption = _optional_caption(item.get("table_caption"), item_index)
         if not isinstance(table_body, str) or not table_body.strip():
-            raise MineruAdapterError(f"MinerU table item {item_index} has no table_body")
-        _validate_optional_asset(
+            asset_ref = None
+            if item.get("img_path") not in (None, ""):
+                try:
+                    asset_ref = _asset_reference(
+                        item["img_path"],
+                        item_index=item_index,
+                        content_list_dir=content_list_dir,
+                        artifact_dir=artifact_dir,
+                    )
+                except MineruAdapterError as error:
+                    if "unsafe image asset path" in str(error).casefold():
+                        raise
+            if asset_ref is not None:
+                table_asset_only.append(item_index)
+                warnings.append(f"table_asset_only:item={item_index}")
+                return TableBlock(**base_fields, asset_ref=asset_ref, caption=caption)
+            table_missing_content.append(item_index)
+            warnings.append(f"table_missing_content:item={item_index}")
+            return None
+        asset_ref = _optional_asset_reference(
             item,
             item_index=item_index,
             content_list_dir=content_list_dir,
             artifact_dir=artifact_dir,
         )
-        caption = _optional_caption(item.get("table_caption"), item_index)
         if table_body.lstrip().lower().startswith("<table"):
-            return TableBlock(**base_fields, html=table_body, caption=caption)
-        return TableBlock(**base_fields, markdown=table_body, caption=caption)
+            return TableBlock(**base_fields, html=table_body, asset_ref=asset_ref, caption=caption)
+        return TableBlock(**base_fields, markdown=table_body, asset_ref=asset_ref, caption=caption)
 
     if block_type == "equation":
         latex = item.get("text")
         if not isinstance(latex, str) or not latex.strip():
             warnings.append(_unsupported_warning(item_index, block_type))
             return None
-        _validate_optional_asset(
+        _optional_asset_reference(
             item,
             item_index=item_index,
             content_list_dir=content_list_dir,
@@ -380,6 +409,8 @@ def adapt_content_list(
     bbox_clamps: list[int] = []
     skipped_auxiliary = 0
     unsupported_items = 0
+    table_asset_only: list[int] = []
+    table_missing_content: list[int] = []
     for item_index, raw_item in enumerate(payload):
         item = raw_item
         block_type = item.get("type")
@@ -402,6 +433,8 @@ def adapt_content_list(
             artifact_dir=output_root,
             warnings=warnings,
             bbox_clamps=bbox_clamps,
+            table_asset_only=table_asset_only,
+            table_missing_content=table_missing_content,
         )
         if block is None:
             unsupported_items += 1
@@ -435,6 +468,8 @@ def adapt_content_list(
         skipped_auxiliary=skipped_auxiliary,
         unsupported_items=unsupported_items,
         bbox_clamped=len(bbox_clamps),
+        table_asset_only=len(table_asset_only),
+        table_missing_content=len(table_missing_content),
         warnings=tuple(warnings),
     )
     return AdaptedCanonicalDocument(document=document, stats=stats)

@@ -1,3 +1,4 @@
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from knowledge_scope.cli import main
 from knowledge_scope.parsing.mineru_adapter import AdapterStats
 from knowledge_scope.parsing.service import ParseResult
+from knowledge_scope.shared.config import Settings
 
 
 def test_health_command_reports_project_and_configuration(
@@ -78,3 +80,35 @@ def test_parse_document_command_reports_non_sensitive_statistics(
     assert "parser_version: 3.4.5" in output.out
     assert "canonical_validation: ok" in output.out
     assert "source_sha256" not in output.out
+
+
+def test_benchmark_inventory_only_requires_explicit_corpus(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "数学教材.pdf").write_bytes(b"%PDF-test")
+    workspace = tmp_path / "workspace"
+    monkeypatch.setattr(
+        "knowledge_scope.cli.get_settings",
+        lambda: Settings(_env_file=None, data_dir=tmp_path / "data"),
+    )
+
+    exit_code = main(
+        [
+            "benchmark-parsing",
+            "--corpus",
+            str(corpus),
+            "--workspace",
+            str(workspace),
+            "--inventory-only",
+        ]
+    )
+    output = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "inventory_status: ok" in output.out
+    assert '"pdfs": 1' in output.out
+    assert (workspace / "corpus-manifest.jsonl").is_file()
