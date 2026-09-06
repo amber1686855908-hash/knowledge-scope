@@ -34,11 +34,11 @@ v1 只接受以下五种 block，`type` 是 Pydantic discriminated union 的判�
 | --- | --- |
 | `title` | 非空白 `text`，表示标题或小节标题 |
 | `text` | 非空白 `text`，表示普通正文 |
-| `table` | `markdown` 或 `html` 二选一且非空白，可选 `caption` |
+| `table` | `markdown`、`html`、`asset_ref` 至少一个；`markdown` 与 `html` 不可同时存在，可选 `caption` |
 | `formula` | 非空白 LaTeX `latex`；模型不执行公式 |
 | `image` | 非空 `asset_ref`，可选 `caption` |
 
-未知的 `type` 和未定义的额外字段都会被拒绝。表格保留为非空 Markdown 或原始 HTML，不在 adapter 中做脆弱的格式转换。图片只保留存储边界使用的 opaque `asset_ref`，不代表绝对文件路径，也不得包含 `.` 或 `..` 路径段（支持检查 POSIX 和 Windows 分隔符）；A1.4 会把它限制在对应 MinerU artifact 目录内的相对引用。
+未知的 `type` 和未定义的额外字段都会被拒绝。表格至少保留一种可迁移表示：非空 Markdown、原始 HTML 或 opaque `asset_ref`；Markdown 与 HTML 最多只能出现一种，结构化表示和图片资产引用可以同时保留。不在 adapter 中做脆弱的格式转换。表格和图片的 `asset_ref` 都只表示存储边界使用的 opaque 引用，不代表绝对文件路径，也不得包含 `.` 或 `..` 路径段（支持检查 POSIX 和 Windows 分隔符）；A1.4 会把它限制在对应 MinerU artifact 目录内的相对引用。
 
 ## 坐标约定
 

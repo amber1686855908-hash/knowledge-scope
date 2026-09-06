@@ -110,6 +110,8 @@ def test_adapter_maps_realistic_items_and_keeps_deterministic_order(tmp_path: Pa
         "skipped_auxiliary": 2,
         "unsupported_items": 3,
         "bbox_clamped": 0,
+        "table_asset_only": 0,
+        "table_missing_content": 0,
         "warnings": 3,
     }
 
@@ -120,6 +122,7 @@ def test_adapter_maps_realistic_items_and_keeps_deterministic_order(tmp_path: Pa
     assert adapted.document.pages[2].blocks[0].block_id == "p3-b1"
     assert first_page.blocks[0].type == "title"
     assert first_page.blocks[2].html == "<table><tr><td>项目</td></tr></table>"
+    assert first_page.blocks[2].asset_ref == "sample/auto/images/table.png"
     assert first_page.blocks[3].latex == r"\frac{a}{b}"
     assert first_page.blocks[4].asset_ref == "sample/auto/images/image.png"
     assert first_page.blocks[5].asset_ref == "sample/auto/images/chart.png"
@@ -133,6 +136,7 @@ def test_adapter_uses_markdown_when_table_body_is_markdown(tmp_path: Path) -> No
             "type": "table",
             "page_idx": 0,
             "table_body": "| 项目 |\n| --- |\n| 正常 |",
+            "img_path": "images/table.png",
         }
     ]
     content_path, artifact_dir = _write_content_list(tmp_path, items)
@@ -141,6 +145,69 @@ def test_adapter_uses_markdown_when_table_body_is_markdown(tmp_path: Path) -> No
 
     assert table.markdown == "| 项目 |\n| --- |\n| 正常 |"
     assert table.html is None
+    assert table.asset_ref == "sample/auto/images/table.png"
+
+
+def test_adapter_maps_asset_only_table_and_reports_degradation(tmp_path: Path) -> None:
+    items = [
+        {
+            "type": "table",
+            "page_idx": 0,
+            "table_body": None,
+            "img_path": "images/table.png",
+            "table_caption": ["表格截图"],
+        }
+    ]
+    content_path, artifact_dir = _write_content_list(tmp_path, items)
+
+    adapted = adapt_content_list(content_path, DOCUMENT_ID, artifact_dir)
+    table = adapted.document.pages[0].blocks[0]
+
+    assert table.type == "table"
+    assert table.markdown is None
+    assert table.html is None
+    assert table.asset_ref == "sample/auto/images/table.png"
+    assert table.caption == "表格截图"
+    assert adapted.stats.table_asset_only == 1
+    assert adapted.stats.table_missing_content == 0
+    assert adapted.stats.unsupported_items == 0
+    assert adapted.stats.warnings == ("table_asset_only:item=0",)
+
+
+def test_adapter_skips_table_without_body_or_asset_and_continues(tmp_path: Path) -> None:
+    items = [
+        {"type": "table", "page_idx": 0, "table_body": None, "img_path": ""},
+        {"type": "text", "page_idx": 0, "text": "表格后的正文"},
+    ]
+    content_path, artifact_dir = _write_content_list(tmp_path, items)
+
+    adapted = adapt_content_list(content_path, DOCUMENT_ID, artifact_dir)
+
+    assert [block.type for block in adapted.document.pages[0].blocks] == ["text"]
+    assert adapted.document.pages[0].blocks[0].block_id == "p1-b1"
+    assert adapted.stats.table_asset_only == 0
+    assert adapted.stats.table_missing_content == 1
+    assert adapted.stats.unsupported_items == 1
+    assert adapted.stats.warnings == ("table_missing_content:item=0",)
+
+
+def test_adapter_skips_table_with_missing_asset_and_continues(tmp_path: Path) -> None:
+    items = [
+        {
+            "type": "table",
+            "page_idx": 0,
+            "table_body": None,
+            "img_path": "images/missing.png",
+        },
+        {"type": "text", "page_idx": 0, "text": "后续正文"},
+    ]
+    content_path, artifact_dir = _write_content_list(tmp_path, items)
+
+    adapted = adapt_content_list(content_path, DOCUMENT_ID, artifact_dir)
+
+    assert [block.type for block in adapted.document.pages[0].blocks] == ["text"]
+    assert adapted.stats.table_missing_content == 1
+    assert adapted.stats.unsupported_items == 1
 
 
 def test_adapter_can_preserve_empty_pages_from_middle_artifact(tmp_path: Path) -> None:
@@ -235,9 +302,25 @@ def test_adapter_rejects_unsafe_image_asset_paths(tmp_path: Path, asset_path: st
         adapt_content_list(content_path, DOCUMENT_ID, artifact_dir)
 
 
-def test_adapter_rejects_table_without_preservable_content(tmp_path: Path) -> None:
-    items = [{"type": "table", "page_idx": 0, "table_body": "   "}]
+@pytest.mark.parametrize("asset_path", ["../table.png", r"..\table.png", "assets/../table.png"])
+def test_adapter_rejects_unsafe_table_asset_paths(tmp_path: Path, asset_path: str) -> None:
+    items = [{"type": "table", "page_idx": 0, "table_body": None, "img_path": asset_path}]
     content_path, artifact_dir = _write_content_list(tmp_path, items)
 
-    with pytest.raises(MineruAdapterError, match="table_body"):
+    with pytest.raises(MineruAdapterError, match="unsafe image asset path"):
+        adapt_content_list(content_path, DOCUMENT_ID, artifact_dir)
+
+
+def test_adapter_rejects_missing_table_asset_when_body_is_present(tmp_path: Path) -> None:
+    items = [
+        {
+            "type": "table",
+            "page_idx": 0,
+            "table_body": "| 项目 |\n| --- |",
+            "img_path": "images/missing.png",
+        }
+    ]
+    content_path, artifact_dir = _write_content_list(tmp_path, items)
+
+    with pytest.raises(MineruAdapterError, match="image asset is missing"):
         adapt_content_list(content_path, DOCUMENT_ID, artifact_dir)

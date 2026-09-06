@@ -1,1 +1,1 @@
-"""Package boundary reserved for evaluation capabilities added in a later phase."""
+"""Evaluation utilities for measured KnowledgeScope parsing behavior."""

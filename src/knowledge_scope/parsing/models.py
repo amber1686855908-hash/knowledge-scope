@@ -77,12 +77,28 @@ class TextBlock(BlockBase):
         return _require_non_blank(value, "text")
 
 
+def _validate_asset_ref(value: str) -> str:
+    value = _require_non_blank(value, "asset_ref")
+    path_segments = value.replace("\\", "/").split("/")
+    windows_path = PureWindowsPath(value)
+    if (
+        any(segment in {".", ".."} for segment in path_segments)
+        or value.startswith(("/", "\\"))
+        or windows_path.drive
+        or windows_path.is_absolute()
+        or "://" in value
+    ):
+        raise ValueError("asset_ref must be an opaque non-absolute reference")
+    return value
+
+
 class TableBlock(BlockBase):
-    """A table represented by one portable textual serialization."""
+    """A table represented by portable content and/or an opaque asset reference."""
 
     type: Literal["table"] = "table"
     markdown: str | None = None
     html: str | None = None
+    asset_ref: str | None = None
     caption: str | None = None
 
     @field_validator("markdown")
@@ -99,10 +115,19 @@ class TableBlock(BlockBase):
             return None
         return _require_non_blank(value, "html")
 
+    @field_validator("asset_ref")
+    @classmethod
+    def validate_asset_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_asset_ref(value)
+
     @model_validator(mode="after")
     def validate_table_content(self) -> Self:
-        if (self.markdown is None) == (self.html is None):
-            raise ValueError("exactly one of markdown or html must be provided")
+        if self.markdown is not None and self.html is not None:
+            raise ValueError("markdown and html are mutually exclusive")
+        if self.markdown is None and self.html is None and self.asset_ref is None:
+            raise ValueError("at least one table content representation must be provided")
         return self
 
 
@@ -128,19 +153,7 @@ class ImageBlock(BlockBase):
     @field_validator("asset_ref")
     @classmethod
     def validate_asset_ref(cls, value: str) -> str:
-        value = _require_non_blank(value, "asset_ref")
-        path_segments = value.replace("\\", "/").split("/")
-        if any(segment in {".", ".."} for segment in path_segments):
-            raise ValueError("asset_ref must not contain '.' or '..' path segments")
-        windows_path = PureWindowsPath(value)
-        if (
-            value.startswith(("/", "\\"))
-            or windows_path.drive
-            or windows_path.is_absolute()
-            or "://" in value
-        ):
-            raise ValueError("asset_ref must be an opaque non-absolute reference")
-        return value
+        return _validate_asset_ref(value)
 
 
 type CanonicalBlock = Annotated[

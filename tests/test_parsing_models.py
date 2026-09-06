@@ -84,6 +84,22 @@ def test_table_block_accepts_html_when_markdown_is_unavailable() -> None:
 @pytest.mark.parametrize(
     "kwargs",
     [
+        {"asset_ref": "assets/table.png"},
+        {"markdown": "| 项目 |\n| --- |", "asset_ref": "assets/table.png"},
+        {"html": "<table></table>", "asset_ref": "assets/table.png"},
+    ],
+)
+def test_table_block_accepts_asset_references_with_or_without_text(
+    kwargs: dict[str, str],
+) -> None:
+    table = TableBlock(block_id="table-1", reading_order=0, **kwargs)
+
+    assert table.asset_ref == "assets/table.png"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
         {},
         {"markdown": "| 项目 |\n| --- |", "html": "<table></table>"},
     ],
@@ -216,6 +232,31 @@ def test_bounding_box_requires_normalized_positive_dimensions(
 def test_image_asset_ref_rejects_an_absolute_path_or_uri(asset_ref: str) -> None:
     with pytest.raises(ValidationError):
         ImageBlock(block_id="b1", reading_order=0, asset_ref=asset_ref)
+
+
+@pytest.mark.parametrize(
+    "asset_ref",
+    [
+        "../table.png",
+        "assets/../table.png",
+        r"..\table.png",
+        r"assets\..\table.png",
+        "./table.png",
+        "assets/./table.png",
+    ],
+)
+def test_table_asset_ref_rejects_dot_path_segments(asset_ref: str) -> None:
+    with pytest.raises(ValidationError):
+        TableBlock(block_id="b1", reading_order=0, asset_ref=asset_ref)
+
+
+@pytest.mark.parametrize(
+    "asset_ref",
+    ["/tmp/table.png", r"C:\tmp\table.png", "file:///tmp/table.png"],
+)
+def test_table_asset_ref_rejects_an_absolute_path_or_uri(asset_ref: str) -> None:
+    with pytest.raises(ValidationError):
+        TableBlock(block_id="b1", reading_order=0, asset_ref=asset_ref)
 
 
 @pytest.mark.parametrize("asset_ref", ["image-1", "assets/image-1.png"])

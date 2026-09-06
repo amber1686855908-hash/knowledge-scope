@@ -1,0 +1,463 @@
+{
+  "benchmark_schema_version": "1.0",
+  "corpus": {
+    "inventory_pdf_entries": 257,
+    "inventory_unique_pdf_contents": 255,
+    "selected_inventory_entries": 257,
+    "unique_pdf_contents": 255,
+    "duplicate_content_entries": 2,
+    "total_bytes": 1580533246,
+    "total_pages": 3833,
+    "unique_content_bytes": 1572908507,
+    "unique_content_pages": 3813,
+    "pages_available_for": 257,
+    "subject_distribution": {
+      "化学": {
+        "pdfs": 6,
+        "bytes": 19085402,
+        "pages": 127,
+        "pages_available": 6
+      },
+      "历史": {
+        "pdfs": 32,
+        "bytes": 209820128,
+        "pages": 663,
+        "pages_available": 32
+      },
+      "地理": {
+        "pdfs": 30,
+        "bytes": 202708476,
+        "pages": 602,
+        "pages_available": 30
+      },
+      "思想政治": {
+        "pdfs": 11,
+        "bytes": 50456397,
+        "pages": 252,
+        "pages_available": 11
+      },
+      "数学": {
+        "pdfs": 53,
+        "bytes": 125451705,
+        "pages": 706,
+        "pages_available": 53
+      },
+      "物理": {
+        "pdfs": 29,
+        "bytes": 314854013,
+        "pages": 291,
+        "pages_available": 29
+      },
+      "生物": {
+        "pdfs": 16,
+        "bytes": 63824218,
+        "pages": 166,
+        "pages_available": 16
+      },
+      "英语": {
+        "pdfs": 60,
+        "bytes": 457212688,
+        "pages": 619,
+        "pages_available": 60
+      },
+      "语文": {
+        "pdfs": 20,
+        "bytes": 137120219,
+        "pages": 407,
+        "pages_available": 20
+      }
+    },
+    "unknown_or_ambiguous_subjects": 0
+  },
+  "benchmark": {
+    "concurrency": 1,
+    "completed_unique_pdfs": 255,
+    "successful_unique_pdfs": 255,
+    "failed_unique_pdfs": 0,
+    "success_rate": 1.0,
+    "all_unique_pdfs_terminal": true,
+    "timeout_count": 0,
+    "failure_categories": {}
+  },
+  "performance": {
+    "total_mineru_elapsed_seconds": 5948.483121,
+    "total_pipeline_elapsed_seconds": 6675.194835,
+    "p50_mineru_latency_seconds": 21.929007,
+    "p95_mineru_latency_seconds": 30.207039,
+    "min_mineru_latency_seconds": 18.841908574977424,
+    "max_mineru_latency_seconds": 45.55887646903284,
+    "successful_pages": 3813,
+    "aggregate_pages_per_second": 0.641004
+  },
+  "canonical_blocks": {
+    "total": 46504,
+    "title": 8138,
+    "text": 30470,
+    "tables": 409,
+    "formulas": 1335,
+    "images": 6152
+  },
+  "signals": {
+    "skipped_auxiliary": 13298,
+    "unsupported_items": 821,
+    "table_asset_only": 0,
+    "table_missing_content": 13,
+    "bbox_clamped": 57,
+    "warning_count": 878,
+    "warning_categories": {
+      "bbox_clamped": 57,
+      "empty_content": 782,
+      "table_missing_content": 13,
+      "unsupported_type": 26
+    }
+  },
+  "normalized_per_100_successful_pages": {
+    "warning_count": 23.026488,
+    "unsupported_items": 21.531602,
+    "table_asset_only": 0.0,
+    "table_missing_content": 0.340939,
+    "tables": 10.726462,
+    "formulas": 35.011802,
+    "images": 161.342775
+  },
+  "methodology": {
+    "mineru_elapsed_seconds": "the existing runner's timed MinerU subprocess only",
+    "total_pipeline_elapsed_seconds": "from benchmark item start through adaptation and canonical/raw persistence",
+    "percentiles": "linear interpolation over successful unique representative documents",
+    "aggregate_pages_per_second": "successful canonical pages divided by total MinerU elapsed time",
+    "duplicate_accounting": "one representative is parsed per SHA-256; duplicate entries reuse that content result"
+  },
+  "subject_summary": {
+    "化学": {
+      "pdfs": 6,
+      "inventory_pages": 127,
+      "successful_pages": 127,
+      "success": 6,
+      "failure": 0,
+      "median_mineru_seconds": 36.43716,
+      "pages_per_second": 0.60196,
+      "blocks": {
+        "title_blocks": 222,
+        "text_blocks": 853,
+        "tables": 59,
+        "formulas": 22,
+        "images": 246
+      },
+      "unsupported_items": 14,
+      "table_asset_only": 0,
+      "table_missing_content": 0,
+      "warning_count": 14,
+      "bbox_clamped": 0
+    },
+    "历史": {
+      "pdfs": 32,
+      "inventory_pages": 663,
+      "successful_pages": 663,
+      "success": 32,
+      "failure": 0,
+      "median_mineru_seconds": 22.028754,
+      "pages_per_second": 0.901189,
+      "blocks": {
+        "title_blocks": 1950,
+        "text_blocks": 4059,
+        "tables": 31,
+        "formulas": 0,
+        "images": 1118
+      },
+      "unsupported_items": 119,
+      "table_asset_only": 0,
+      "table_missing_content": 1,
+      "warning_count": 129,
+      "bbox_clamped": 10
+    },
+    "地理": {
+      "pdfs": 30,
+      "inventory_pages": 602,
+      "successful_pages": 602,
+      "success": 30,
+      "failure": 0,
+      "median_mineru_seconds": 21.586464,
+      "pages_per_second": 0.899702,
+      "blocks": {
+        "title_blocks": 1072,
+        "text_blocks": 3490,
+        "tables": 35,
+        "formulas": 0,
+        "images": 1194
+      },
+      "unsupported_items": 54,
+      "table_asset_only": 0,
+      "table_missing_content": 2,
+      "warning_count": 74,
+      "bbox_clamped": 20
+    },
+    "思想政治": {
+      "pdfs": 11,
+      "inventory_pages": 252,
+      "successful_pages": 252,
+      "success": 11,
+      "failure": 0,
+      "median_mineru_seconds": 21.852229,
+      "pages_per_second": 1.040138,
+      "blocks": {
+        "title_blocks": 678,
+        "text_blocks": 1845,
+        "tables": 7,
+        "formulas": 0,
+        "images": 490
+      },
+      "unsupported_items": 40,
+      "table_asset_only": 0,
+      "table_missing_content": 0,
+      "warning_count": 40,
+      "bbox_clamped": 0
+    },
+    "数学": {
+      "pdfs": 53,
+      "inventory_pages": 706,
+      "successful_pages": 706,
+      "success": 53,
+      "failure": 0,
+      "median_mineru_seconds": 25.910447,
+      "pages_per_second": 0.513954,
+      "blocks": {
+        "title_blocks": 1152,
+        "text_blocks": 7625,
+        "tables": 186,
+        "formulas": 1188,
+        "images": 1056
+      },
+      "unsupported_items": 160,
+      "table_asset_only": 0,
+      "table_missing_content": 1,
+      "warning_count": 165,
+      "bbox_clamped": 5
+    },
+    "物理": {
+      "pdfs": 29,
+      "inventory_pages": 291,
+      "successful_pages": 291,
+      "success": 29,
+      "failure": 0,
+      "median_mineru_seconds": 20.187527,
+      "pages_per_second": 0.478367,
+      "blocks": {
+        "title_blocks": 617,
+        "text_blocks": 1960,
+        "tables": 22,
+        "formulas": 122,
+        "images": 723
+      },
+      "unsupported_items": 94,
+      "table_asset_only": 0,
+      "table_missing_content": 2,
+      "warning_count": 94,
+      "bbox_clamped": 0
+    },
+    "生物": {
+      "pdfs": 14,
+      "inventory_pages": 146,
+      "successful_pages": 146,
+      "success": 14,
+      "failure": 0,
+      "median_mineru_seconds": 20.435813,
+      "pages_per_second": 0.498642,
+      "blocks": {
+        "title_blocks": 476,
+        "text_blocks": 1412,
+        "tables": 11,
+        "formulas": 3,
+        "images": 351
+      },
+      "unsupported_items": 82,
+      "table_asset_only": 0,
+      "table_missing_content": 0,
+      "warning_count": 83,
+      "bbox_clamped": 1
+    },
+    "英语": {
+      "pdfs": 60,
+      "inventory_pages": 619,
+      "successful_pages": 619,
+      "success": 60,
+      "failure": 0,
+      "median_mineru_seconds": 21.262123,
+      "pages_per_second": 0.469688,
+      "blocks": {
+        "title_blocks": 1705,
+        "text_blocks": 5922,
+        "tables": 53,
+        "formulas": 0,
+        "images": 831
+      },
+      "unsupported_items": 146,
+      "table_asset_only": 0,
+      "table_missing_content": 7,
+      "warning_count": 162,
+      "bbox_clamped": 16
+    },
+    "语文": {
+      "pdfs": 20,
+      "inventory_pages": 407,
+      "successful_pages": 407,
+      "success": 20,
+      "failure": 0,
+      "median_mineru_seconds": 24.511768,
+      "pages_per_second": 0.817679,
+      "blocks": {
+        "title_blocks": 266,
+        "text_blocks": 3304,
+        "tables": 5,
+        "formulas": 0,
+        "images": 143
+      },
+      "unsupported_items": 112,
+      "table_asset_only": 0,
+      "table_missing_content": 0,
+      "warning_count": 117,
+      "bbox_clamped": 5
+    }
+  },
+  "bad_case_candidates": [
+    {
+      "benchmark_item_id": "item-1a711d35f8207d51d3020ff26f636ca69e1d85ca5f06a7ec61aa9c95c6f91fe3",
+      "basename": "普通高中教科书·生物学必修1_分子与细胞_1-10.pdf",
+      "relative_path": "part_16/普通高中教科书·生物学必修1_分子与细胞_1-10.pdf",
+      "subject": "生物",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    },
+    {
+      "benchmark_item_id": "item-3fb412bd4f6f6873aa5d483c731a1a27a58dc33afdcdea5bd0f6f8628084bb20",
+      "basename": "普通高中教科书·英语必修_第二册_71-80.pdf",
+      "relative_path": "part_22/普通高中教科书·英语必修_第二册_71-80.pdf",
+      "subject": "英语",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    },
+    {
+      "benchmark_item_id": "item-2231094279df63da442f6593435348b6f9a51700fdc0720d44b54313a14cfdea",
+      "basename": "普通高中教科书·英语必修_第三册_31-40.pdf",
+      "relative_path": "part_20/普通高中教科书·英语必修_第三册_31-40.pdf",
+      "subject": "英语",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    },
+    {
+      "benchmark_item_id": "item-996c166ccd95b06376d9e02136afce643d6912baed1bbfe6ea31555e1d7ae00d",
+      "basename": "普通高中教科书·语文选择性必修_上册_58-76.pdf",
+      "relative_path": "part_25/普通高中教科书·语文选择性必修_上册_58-76.pdf",
+      "subject": "语文",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    },
+    {
+      "benchmark_item_id": "item-8f77a6d89a820e57317be134f9f4653e703cdf16df7c9978f9cbc3f4a39408a1",
+      "basename": "普通高中教科书·地理选择性必修2_区域发展_20-38.pdf",
+      "relative_path": "part_6/普通高中教科书·地理选择性必修2_区域发展_20-38.pdf",
+      "subject": "地理",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    },
+    {
+      "benchmark_item_id": "item-655e3d740a494c58050dcd5a94440bfdebad76aeaa36bebd783a03c19108e3dc",
+      "basename": "普通高中教科书·英语必修_第一册_21-30.pdf",
+      "relative_path": "part_18/普通高中教科书·英语必修_第一册_21-30.pdf",
+      "subject": "英语",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    },
+    {
+      "benchmark_item_id": "item-85f9cbe5292ae0023d0aaa6da92052e20dd076ba8fc99113fc16769476c8b483",
+      "basename": "普通高中教科书·历史必修_中外历史纲要（下）_39-57.pdf",
+      "relative_path": "part_2/普通高中教科书·历史必修_中外历史纲要（下）_39-57.pdf",
+      "subject": "历史",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    },
+    {
+      "benchmark_item_id": "item-9a73c9da96e0bccfdfa7ce9cb8aa9c7dba44b0ec45a023ba98d7bec5668140d3",
+      "basename": "普通高中教科书·地理必修_第二册_77-95.pdf",
+      "relative_path": "part_5/普通高中教科书·地理必修_第二册_77-95.pdf",
+      "subject": "地理",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    },
+    {
+      "benchmark_item_id": "item-50b6c3ea2e655a9f4675578e02649bbc6b0d50a1b0d5aa1b1aaa6a317a947a4a",
+      "basename": "普通高中教科书·语文选择性必修_下册_21-40.pdf",
+      "relative_path": "part_25/普通高中教科书·语文选择性必修_下册_21-40.pdf",
+      "subject": "语文",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    },
+    {
+      "benchmark_item_id": "item-c8a97e6003c0e400763dfbb4d205ca70da10ac0bcec6d5b3d168162b241e7427",
+      "basename": "普通高中教科书·语文必修_下册_39-57.pdf",
+      "relative_path": "part_24/普通高中教科书·语文必修_下册_39-57.pdf",
+      "subject": "语文",
+      "reason": [
+        "bbox_clamped",
+        "warning_density",
+        "unsupported_density"
+      ],
+      "observed_layer": "adapter",
+      "requires_code_change_now": false,
+      "raw_available": true
+    }
+  ]
+}

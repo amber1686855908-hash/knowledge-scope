@@ -79,7 +79,7 @@ data/
 
 MinerU 原始输出、Markdown、middle/model 文件、日志和图片资产保留在 `mineru/` 下，供调试和复现使用。`canonical.json` 和 `manifest.json` 先写入随机 staging 目录，再原子提升到文档目录；失败解析会清理 staging，不会留下看似成功的 canonical 文件。删除 Document 时，API 会先将原始 PDF 和存在的 `data/parsing/<document_id>/` 一起移入应用控制的临时 staging，再提交数据库删除；数据库失败会尽力恢复两者，提交成功后永久清理。解析目录是可选的，不存在时不影响删除；解析与删除并发协调不在本阶段范围内。原始上传仍位于 `data/documents/`，不会被覆盖。
 
-manifest 只保存 `document_id`、源文件 SHA-256、parser、MinerU 版本、backend、canonical schema 版本、UTC 解析时间、仓库内相对 artifact 引用，以及 `parse_stats`。`parse_stats` 包含 elapsed、各类 block/skip/unsupported 数、`bbox_clamped`、warning 数和最多 100 条截断后的 adapter warning；不保存密钥、绝对路径或准确率。
+manifest 只保存 `document_id`、源文件 SHA-256、parser、MinerU 版本、backend、canonical schema 版本、UTC 解析时间、仓库内相对 artifact 引用，以及 `parse_stats`。`parse_stats` 包含 elapsed、各类 block/skip/unsupported 数、`bbox_clamped`、`table_asset_only`、`table_missing_content`、warning 数和最多 100 条截断后的 adapter warning；不保存密钥、绝对路径或准确率。
 
 ## Adapter 规则
 
@@ -91,11 +91,11 @@ adapter 是唯一理解 MinerU 字段名的模块，主输入是稳定的 `*_con
 | `text` | `TextBlock` | 保留正文文本 |
 | `list` | `TextBlock` | 仅在条目可读时按顺序合并 |
 | `equation` | `FormulaBlock` | 原样保留 LaTeX 文本 |
-| `table` | `TableBlock` | `table_body` 为 Markdown 时保存 `markdown`，为 HTML 时保存 `html`；不做脆弱转换 |
+| `table` | `TableBlock` | `table_body` 为 Markdown/HTML 时保存对应结构化表示，并在 `img_path` 有效时同时保留 `asset_ref`；缺少 `table_body` 但有有效图片时保存 asset-only 表格 |
 | `image` | `ImageBlock` | 只保存 artifact 根目录内的相对 opaque `asset_ref` |
 | `chart` 且有真实图片 | `ImageBlock` | 复用真实图片资产并保留图注 |
 
-页眉、页脚、页码和页脚注是有统计的 intentional skip。`list` 在内容可读时合并为 `TextBlock`；`chart` 在有真实图片资产时映射为 `ImageBlock`；`aside_text`、`code`、未知类型和没有可保留内容的类型不会伪装成其他 block，会计入 `unsupported_items` 和 warning。图片路径会同时检查 POSIX/Windows 分隔符、绝对路径、URI、`.`/`..` 段、artifact 边界和文件存在性。MinerU 的 bbox 按当前 pipeline 实际使用的 `[0,1000]` 页面坐标归一化到 canonical `[0,1]`；超出边界不超过一个 source coordinate unit 时才会夹到边界，并产生 `bbox_clamped` 统计和 `bbox_clamped:item=<index>` warning；超出该容差或夹取后几何仍无效时直接失败，不静默修复。
+页眉、页脚、页码和页脚注是有统计的 intentional skip。`list` 在内容可读时合并为 `TextBlock`；`chart` 在有真实图片资产时映射为 `ImageBlock`；`aside_text`、`code`、未知类型和没有可保留内容的类型不会伪装成其他 block，会计入 `unsupported_items` 和 warning。表格缺少 `table_body` 时，adapter 会优先尝试有效的 `img_path`：成功则生成 asset-only `TableBlock` 并记录 `table_asset_only`；没有可用资产则将该条目计为 `unsupported_items`，记录 `table_missing_content` warning，并继续适配同一文档的其他内容。显式不安全的路径和结构性错误仍然失败。图片和表格的资产路径会同时检查 POSIX/Windows 分隔符、绝对路径、URI、`.`/`..` 段、artifact 边界和文件存在性。MinerU 的 bbox 按当前 pipeline 实际使用的 `[0,1000]` 页面坐标归一化到 canonical `[0,1]`；超出边界不超过一个 source coordinate unit 时才会夹到边界，并产生 `bbox_clamped` 统计和 `bbox_clamped:item=<index>` warning；超出该容差或夹取后几何仍无效时直接失败，不静默修复。
 
 ## 故障排查
 
@@ -105,4 +105,4 @@ adapter 是唯一理解 MinerU 字段名的模块，主输入是稳定的 `*_con
 - 超时：只在未提交的 `.env` 增大 `KNOWLEDGE_SCOPE_MINERU_TIMEOUT_SECONDS`，并确认 staging 已被清理。
 - 源文件 SHA-256 不一致：停止解析并检查 `data/documents/` 中的受控原始文件，不要覆盖它。
 
-本阶段未实现 chunking、embedding、向量数据库、RAG、GraphRAG、评估或全量语料 benchmark。
+当前未实现 chunking、embedding、向量数据库、RAG、GraphRAG 或产品级评估。A1.5 的全量语料 benchmark 是独立的开发者评估 harness，结果与限制见 [A1.5 基准报告](../benchmarks/a1-5-corpus-parsing.md)。
