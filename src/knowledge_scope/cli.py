@@ -14,6 +14,16 @@ from pydantic import ValidationError
 
 from knowledge_scope import __version__
 from knowledge_scope.chunking.service import ChunkingError, chunk_document_by_id
+from knowledge_scope.evaluation.embedding_benchmark import (
+    DEFAULT_CHUNK_INDEX,
+    DEFAULT_DATASET,
+    DEFAULT_MATERIALIZED,
+    DEFAULT_OUTPUT,
+    MODEL_KEYS,
+    EmbeddingBenchmarkError,
+    EmbeddingBenchmarkProtocol,
+    run_embedding_benchmark,
+)
 from knowledge_scope.evaluation.parsing_benchmark import (
     RAW_RETENTION_VALUES,
     BenchmarkConfig,
@@ -201,6 +211,40 @@ def build_parser() -> argparse.ArgumentParser:
         "--repository-safe-output",
         type=Path,
         default=Path("docs/benchmarks/a2-1-retrieval-eval-v1.jsonl"),
+    )
+
+    embedding_benchmark = subparsers.add_parser(
+        "embedding-benchmark",
+        help="benchmark local dense embedding models on the frozen A2.1 set",
+    )
+    embedding_benchmark.add_argument(
+        "--split",
+        choices=("dev", "test", "both"),
+        default="dev",
+        help="benchmark dev first, then run the unchanged protocol on test",
+    )
+    embedding_benchmark.add_argument(
+        "--models",
+        nargs="+",
+        choices=MODEL_KEYS,
+        default=list(MODEL_KEYS),
+        help="candidate model keys; use the same list for dev and test",
+    )
+    embedding_benchmark.add_argument("--chunk-index", type=Path, default=DEFAULT_CHUNK_INDEX)
+    embedding_benchmark.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    embedding_benchmark.add_argument(
+        "--materialized",
+        type=Path,
+        default=DEFAULT_MATERIALIZED,
+    )
+    embedding_benchmark.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    embedding_benchmark.add_argument("--batch-size", type=_positive_int, default=4)
+    embedding_benchmark.add_argument("--max-seq-length", type=_positive_int, default=512)
+    embedding_benchmark.add_argument("--device", default="cuda")
+    embedding_benchmark.add_argument(
+        "--dtype",
+        choices=("float16", "float32", "bfloat16"),
+        default="float16",
     )
     return parser
 
@@ -392,6 +436,44 @@ def _run_retrieval_eval(args: argparse.Namespace) -> int:
     return 1
 
 
+def _run_embedding_benchmark(args: argparse.Namespace) -> int:
+    """Run the read-only local embedding benchmark."""
+    try:
+        outcome = run_embedding_benchmark(
+            split=args.split,
+            model_keys=args.models,
+            protocol=EmbeddingBenchmarkProtocol(
+                batch_size=args.batch_size,
+                max_seq_length=args.max_seq_length,
+                dtype=args.dtype,
+                device=args.device,
+            ),
+            chunk_index_path=args.chunk_index,
+            dataset_path=args.dataset,
+            materialized_path=args.materialized,
+            output_dir=args.output,
+        )
+    except (EmbeddingBenchmarkError, ValueError) as error:
+        print("embedding_benchmark_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("embedding_benchmark_status: interrupted", file=sys.stderr)
+        return 130
+
+    manifest = outcome["manifest"]
+    if not isinstance(manifest, dict):
+        print("embedding_benchmark_status: failed", file=sys.stderr)
+        print("error: benchmark manifest is invalid", file=sys.stderr)
+        return 1
+    status_counts = manifest.get("status_counts", {})
+    status = "complete" if status_counts.get("failed", 0) == 0 else "complete_with_failures"
+    print(f"embedding_benchmark_status: {status}")
+    print(f"output: {args.output}")
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     parser = build_parser()
@@ -407,6 +489,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_benchmark(args)
     if args.command == "retrieval-eval":
         return _run_retrieval_eval(args)
+    if args.command == "embedding-benchmark":
+        return _run_embedding_benchmark(args)
 
     parser.print_help()
     return 0
