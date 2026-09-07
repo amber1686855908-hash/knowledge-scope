@@ -1,1 +1,1 @@
-"""Evaluation utilities for measured KnowledgeScope parsing behavior."""
+"""Evaluation utilities for measured KnowledgeScope parsing and retrieval behavior."""

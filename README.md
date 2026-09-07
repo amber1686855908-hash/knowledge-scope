@@ -28,6 +28,8 @@ Phase A1.5 已完成只读的全量解析基准：清单包含 257 个 PDF 条�
 
 Phase A1.6 使用这批已有 canonical 结果做了 CPU-only 结构分块校验：255/255 个文档成功生成 7,524 个默认 chunk，46,504 个 source block 和 6,176 个 asset block 的覆盖率均为 100%，未重新运行 MinerU；画像、策略比较、硬化前后对比和学科统计见 [A1.6 分块基准报告](docs/benchmarks/a1-6-semantic-chunking.md)。
 
+Phase A2.1 已完成基于 canonical `document_id`、页码和 `source_block_ids` 的文本检索评估集：人工审核后保留 108 条 `verified`、54 条 `rejected`，覆盖 9 个学科且每科 12 条；最终 `retrieval-eval-v1` 划分为 72 条 dev 和 36 条 test，每科分别为 8/4。教材问题只保存在 `query_source` 审计字段，gold `evidence` 仅使用答案性正文、公式或文本表格，并通过 query 泄漏、evidence fingerprint、chunk lineage、重复 evidence/chunk 分组和 dev/test 分组校验；编辑 query 后会重新生成 deterministic item ID。运行时产物位于被忽略的 `data/evaluation/a2-1/`，仓库安全的最终标注见 [A2.1 retrieval-eval-v1](docs/benchmarks/a2-1-retrieval-eval-v1.jsonl)；详见 [A2.1 检索评估集报告](docs/benchmarks/a2-1-retrieval-eval-set.md)。当前不包含 embedding、真实检索分数或任何下游 RAG 能力。
+
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
 ## 本地开发
