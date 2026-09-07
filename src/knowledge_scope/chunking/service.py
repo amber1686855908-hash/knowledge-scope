@@ -752,7 +752,7 @@ def summarize_chunked_document(
         "chunks_containing_tables": chunks_with_type["table"],
         "chunks_containing_formulas": chunks_with_type["formula"],
         "chunks_containing_images": chunks_with_type["image"],
-        "asset_ref_coverage": {
+        "asset_ref_lineage_coverage": {
             "source_asset_blocks": len(source_asset_blocks),
             "referenced_asset_blocks": len(referenced_asset_blocks),
             "coverage_rate": round(len(referenced_asset_blocks) / len(source_asset_blocks), 6)
@@ -784,10 +784,16 @@ def _promote_staging(staging_dir: Path, final_dir: Path) -> None:
             shutil.rmtree(backup_dir, ignore_errors=True)
 
 
-def _load_canonical_document(document_id: UUID, settings: Settings) -> CanonicalDocument:
+def _load_canonical_document(
+    document_id: UUID,
+    settings: Settings,
+) -> tuple[CanonicalDocument, str]:
     path = Path(settings.data_dir) / PARSING_DIRECTORY_NAME / str(document_id) / "canonical.json"
     try:
-        return CanonicalDocument.model_validate_json(path.read_text(encoding="utf-8"))
+        canonical_bytes = path.read_bytes()
+        document = CanonicalDocument.model_validate_json(canonical_bytes)
+        source_hash = hashlib.sha256(canonical_bytes).hexdigest()
+        return document, source_hash
     except FileNotFoundError as error:
         raise ChunkingError("the canonical document artifact was not found") from error
     except (OSError, UnicodeDecodeError, ValidationError) as error:
@@ -800,7 +806,7 @@ def chunk_document_by_id(
     config: ChunkingConfig | None = None,
 ) -> ChunkingResult:
     """Chunk an existing canonical artifact and atomically persist the result."""
-    document = _load_canonical_document(document_id, settings)
+    document, source_canonical_sha256 = _load_canonical_document(document_id, settings)
     if document.document_id != document_id:
         raise ChunkingError("canonical document ID does not match the requested document")
     chunking_config = config or ChunkingConfig()
@@ -822,6 +828,7 @@ def chunk_document_by_id(
             "config": chunking_config.model_dump(mode="json"),
             "config_fingerprint": config_fingerprint,
             "source_canonical_ref": f"parsing/{document_id}/canonical.json",
+            "source_canonical_sha256": source_canonical_sha256,
             "chunks_ref": f"chunking/{document_id}/chunks.json",
             "created_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "summary": summary,

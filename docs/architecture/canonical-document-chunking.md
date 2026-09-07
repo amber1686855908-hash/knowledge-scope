@@ -47,6 +47,8 @@ Phase A1.6 在已有 `CanonicalDocument` 上提供结构感知的语义分块。
 
 asset-only chunk 的 `text` 可以为空，但必须有 `asset_refs`；不会添加 `[image]`、`[table]`、`[formula]` 或其他虚构内容。
 
+chunk `manifest.json` 的 `source_canonical_sha256` 是实际读取并校验的 `canonical.json` 内容的 SHA-256，用于证明 `chunks.json` 来源于哪一份 canonical 内容；manifest 不保存绝对路径。`asset_ref_lineage_coverage` 只表示携带 `asset_ref` 的 canonical block 是否至少在一个 chunk 中保留该引用，不表示对应物理文件仍然存在，也不表示多模态语料完整率为 100%。
+
 ## Lineage 与 artifact
 
 每个 chunk 都能沿以下链路回到原始文档：
@@ -64,7 +66,9 @@ Chunk.document_id
 chunk_document(document: CanonicalDocument, config: ChunkingConfig) -> ChunkedDocument
 ```
 
-它不执行数据库、网络、GPU、MinerU 或 embedding 操作。开发者 CLI `uv run knowledgescope chunk-document <document-id>` 读取已有的 `data/parsing/<document_id>/canonical.json`，使用 staging 和原子提升写入 `data/chunking/<document_id>/chunks.json` 与 `manifest.json`。artifact 中记录配置和 fingerprint，但不记录机器路径。
+它不执行数据库、网络、GPU、MinerU 或 embedding 操作。开发者 CLI `uv run knowledgescope chunk-document <document-id>` 读取已有的 `data/parsing/<document_id>/canonical.json`，使用 staging 和原子提升写入 `data/chunking/<document_id>/chunks.json` 与 `manifest.json`。artifact 中记录配置、fingerprint 和 `source_canonical_sha256`，但不记录机器路径。canonical 成功替换后会清理对应的 chunk artifact；解析失败发生在 canonical 提升前时，原有 parsing/chunking artifact 保持不变。删除 Document 时，source、parsing 和存在的 chunking 目录一起参与现有的补偿式文件生命周期。
+
+`asset_ref_lineage_coverage` 不检查物理 asset 的保留或物化；这项工作必须在 A4 多模态检索前单独处理。
 
 ## 明确不包含的内容
 

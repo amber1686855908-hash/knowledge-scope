@@ -38,7 +38,7 @@
 | isolated title / formula / image chunks | 1,266 / 11 / 22 |
 | source coverage | 46,504 / 46,504（100%） |
 
-首轮中没有未引用的 meaningful block；16 个超长正文 block 因 deterministic fallback 被多个 chunk 引用。6,176 个带 `asset_ref` 的 table/image block 全部被引用，asset-ref coverage 为 100%。首轮这些结果不是当前输出格式的声明；最终渲染规则见下文。
+首轮中没有未引用的 meaningful block；16 个超长正文 block 因 deterministic fallback 被多个 chunk 引用。6,176 个带 `asset_ref` 的 table/image block 全部被引用，`asset_ref_lineage_coverage` 为 100%。这个指标只检查 canonical 引用是否传播到 chunk，不检查物理 asset 文件是否存在或被保留；首轮这些结果不是当前输出格式的声明，最终渲染规则见下文。
 
 ## 本轮硬化规则与结构原因
 
@@ -98,7 +98,7 @@
 | 含 table / formula / image 的 chunk | 342 / 541 / 3,643 |
 | title-only / formula-only / captionless image-only chunks | 3 / 5 / 20 |
 
-所有 46,504 个 canonical source block 都至少被一个 chunk 引用，source coverage 为 100%；没有 unreferenced meaningful block，16 个超长正文 block 被多个 chunk 引用。6,176 个带 `asset_ref` 的 source block 全部被引用，asset-ref coverage 为 100%。全量不存在完全无文本且无资产引用的 chunk；空文本 chunk 共 20 个，全部是 image asset-only chunk。
+所有 46,504 个 canonical source block 都至少被一个 chunk 引用，source coverage 为 100%；没有 unreferenced meaningful block，16 个超长正文 block 被多个 chunk 引用。6,176 个带 `asset_ref` 的 source block 全部被引用，`asset_ref_lineage_coverage` 为 100%。这只表示 canonical block 的引用被至少一个 chunk 保留，不表示物理 asset 可用性为 100%，也不表示多模态语料完整率为 100%。全量不存在完全无文本且无资产引用的 chunk；空文本 chunk 共 20 个，全部是 image asset-only chunk。
 
 `oversized_atomic_chunks` 的定义是：chunk 中最多包含标题上下文和一个不可拆的 table/formula/image source block，该 source block 的完整渲染超过 `max_chars`。因此有些带标题上下文的 chunk 仍可能超过上限；内容没有被截断或重新拼接。
 
@@ -136,6 +136,8 @@
 
 ## Artifact、范围与后续阶段
 
-`chunk_document(document, config)` 是纯函数式核心入口，不执行数据库、网络、GPU、MinerU 或 embedding 操作。开发者 CLI `uv run knowledgescope chunk-document <document-id>` 只读取已有 `data/parsing/<document_id>/canonical.json`，并将 validated chunk artifact 写入 `data/chunking/<document_id>/chunks.json` 与 `manifest.json`；本次全量基准没有持久化完整 chunk corpus。
+`chunk_document(document, config)` 是纯函数式核心入口，不执行数据库、网络、GPU、MinerU 或 embedding 操作。开发者 CLI `uv run knowledgescope chunk-document <document-id>` 只读取已有 `data/parsing/<document_id>/canonical.json`，并将 validated chunk artifact 写入 `data/chunking/<document_id>/chunks.json` 与 `manifest.json`；manifest 的 `source_canonical_sha256` 来自实际读取的 canonical 内容，不保存绝对路径。本次全量基准没有持久化完整 chunk corpus。
+
+`asset_ref_lineage_coverage` 不评估物理 asset 的保留或物化；A1.5 的 raw-retention 策略可能移除普通成功解析的 MinerU 原始输出。物理 asset retention/materialization 必须在 A4 多模态检索前单独处理，本阶段不重新运行 MinerU，也不声称多模态语料完整率为 100%。
 
 A1.6 仍不包含 embedding、tokenizer、向量库、reranking、LLM、RAG/GraphRAG、多模态检索、chunk 数据库表、在线上传联动或前端页面。后续阶段可以使用当前稳定的 `document_id`、`page_number`、`source_block_ids` 和 `asset_refs` lineage，但本报告不对这些下游能力的效果作声明。

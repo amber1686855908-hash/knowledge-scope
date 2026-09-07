@@ -5,7 +5,12 @@
     "documents_processed": 255,
     "documents_failed": 0,
     "mineru_rerun": false,
-    "execution": "在内存中以 CPU-only 方式对已有 canonical artifact 执行 chunk_document 校验；没有持久化完整 chunk corpus。"
+    "execution": "在内存中以 CPU-only 方式对已有 canonical artifact 执行 chunk_document 校验；没有持久化完整 chunk corpus。",
+    "asset_ref_lineage_coverage_scope": {
+      "definition": "携带 asset_ref 的 canonical block 是否至少被一个 chunk 保留其引用",
+      "physical_asset_retention_evaluated": false,
+      "multimodal_corpus_completeness_claimed": false
+    }
   },
   "first_pass_baseline": {
     "config": {
@@ -62,7 +67,7 @@
       "multiply_referenced": 16,
       "coverage_rate": 1.0
     },
-    "asset_ref_coverage": {
+    "asset_ref_lineage_coverage": {
       "source_asset_blocks": 6176,
       "referenced_asset_blocks": 6176,
       "coverage_rate": 1.0
@@ -104,7 +109,7 @@
       "final_synthetic_image_text": 0,
       "final_empty_text_asset_only_chunks": 20,
       "final_empty_text_image_chunks": 20,
-      "final_asset_ref_coverage_rate": 1.0
+      "final_asset_ref_lineage_coverage_rate": 1.0
     },
     "formulas": {
       "initial_isolated_formula_chunks": 11,
@@ -193,7 +198,7 @@
       "multiply_referenced": 16,
       "coverage_rate": 1.0
     },
-    "asset_ref_coverage": {
+    "asset_ref_lineage_coverage": {
       "source_asset_blocks": 6176,
       "referenced_asset_blocks": 6176,
       "coverage_rate": 1.0

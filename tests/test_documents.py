@@ -293,13 +293,14 @@ async def test_delete_removes_document_metadata_and_file_and_allows_empty_kb_del
     assert not stored_path.exists()
     assert not stored_path.parent.exists()
     assert not (test_data_dir / "parsing" / document["id"]).exists()
+    assert not (test_data_dir / "chunking" / document["id"]).exists()
     assert (
         await client.get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document['id']}")
     ).status_code == 404
 
 
 @pytest.mark.anyio
-async def test_delete_removes_parsing_artifacts_with_document(
+async def test_delete_removes_parsing_and_chunking_artifacts_with_document(
     client: AsyncClient,
     test_data_dir: Path,
 ) -> None:
@@ -309,10 +310,13 @@ async def test_delete_removes_parsing_artifacts_with_document(
     document_id = UUID(document["id"])
     stored_path = test_data_dir / storage_key_for_document(knowledge_base_id, document_id)
     parsing_dir = test_data_dir / "parsing" / str(document_id)
+    chunking_dir = test_data_dir / "chunking" / str(document_id)
     (parsing_dir / "mineru" / "images").mkdir(parents=True)
+    (chunking_dir / "chunks.json").parent.mkdir(parents=True)
     (parsing_dir / "canonical.json").write_text("{}", encoding="utf-8")
     (parsing_dir / "manifest.json").write_text("{}", encoding="utf-8")
     (parsing_dir / "mineru" / "images" / "image.png").write_bytes(b"asset")
+    (chunking_dir / "chunks.json").write_text("chunks", encoding="utf-8")
 
     response = await client.delete(
         f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}"
@@ -321,6 +325,7 @@ async def test_delete_removes_parsing_artifacts_with_document(
     assert response.status_code == 204
     assert not stored_path.exists()
     assert not parsing_dir.exists()
+    assert not chunking_dir.exists()
     assert not list((test_data_dir / "documents").glob(".delete-*"))
     assert (
         await client.get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}")
@@ -339,9 +344,12 @@ async def test_delete_restores_source_and_parsing_artifacts_when_database_delete
     document_id = UUID(document["id"])
     stored_path = test_data_dir / storage_key_for_document(knowledge_base_id, document_id)
     parsing_dir = test_data_dir / "parsing" / str(document_id)
+    chunking_dir = test_data_dir / "chunking" / str(document_id)
     (parsing_dir / "mineru").mkdir(parents=True)
+    chunking_dir.mkdir(parents=True)
     (parsing_dir / "canonical.json").write_text("canonical", encoding="utf-8")
     (parsing_dir / "mineru" / "raw.json").write_text("raw", encoding="utf-8")
+    (chunking_dir / "chunks.json").write_text("chunks", encoding="utf-8")
 
     async def fail_commit(_session: object) -> None:
         raise SQLAlchemyError("simulated database failure")
@@ -357,6 +365,7 @@ async def test_delete_restores_source_and_parsing_artifacts_when_database_delete
     assert stored_path.read_bytes() == VALID_PDF
     assert (parsing_dir / "canonical.json").read_text(encoding="utf-8") == "canonical"
     assert (parsing_dir / "mineru" / "raw.json").read_text(encoding="utf-8") == "raw"
+    assert (chunking_dir / "chunks.json").read_text(encoding="utf-8") == "chunks"
     assert not list((test_data_dir / "documents").glob(".delete-*"))
     assert (
         await client.get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}")

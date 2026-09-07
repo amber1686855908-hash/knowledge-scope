@@ -21,6 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from knowledge_scope.chunking.service import CHUNKING_DIRECTORY_NAME
 from knowledge_scope.documents.models import (
     DOCUMENT_MEDIA_TYPE_PDF,
     DOCUMENT_STATUS_UPLOADED,
@@ -234,6 +235,7 @@ async def delete_document(
     settings = _runtime_settings(request)
     trashed_source: TrashedResource | None = None
     trashed_parsing: TrashedResource | None = None
+    trashed_chunking: TrashedResource | None = None
     try:
         final_path = filesystem_path_for_storage_key(settings.data_dir, document.storage_key)
         trashed_source = move_to_trash(final_path, settings.data_dir)
@@ -243,8 +245,18 @@ async def delete_document(
             if parsing_path.is_symlink() or not parsing_path.is_dir():
                 raise StorageError("parsing artifact directory is invalid")
             trashed_parsing = move_to_trash(parsing_path, settings.data_dir)
+
+        chunking_path = (
+            Path(settings.data_dir).resolve() / CHUNKING_DIRECTORY_NAME / str(document.id)
+        )
+        if chunking_path.is_symlink() or chunking_path.exists():
+            if chunking_path.is_symlink() or not chunking_path.is_dir():
+                raise StorageError("chunking artifact directory is invalid")
+            trashed_chunking = move_to_trash(chunking_path, settings.data_dir)
     except (OSError, StorageError):
-        restoration_failed = _restore_deleted_resources((trashed_source, trashed_parsing))
+        restoration_failed = _restore_deleted_resources(
+            (trashed_source, trashed_parsing, trashed_chunking)
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
@@ -257,7 +269,7 @@ async def delete_document(
         await session.commit()
     except SQLAlchemyError:
         await session.rollback()
-        if _restore_deleted_resources((trashed_source, trashed_parsing)):
+        if _restore_deleted_resources((trashed_source, trashed_parsing, trashed_chunking)):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="文档删除失败, 且文件恢复失败",
@@ -268,7 +280,7 @@ async def delete_document(
         ) from None
 
     cleanup_failed = False
-    for resource in (trashed_parsing, trashed_source):
+    for resource in (trashed_chunking, trashed_parsing, trashed_source):
         if resource is None:
             continue
         try:

@@ -99,6 +99,57 @@ def test_parse_document_file_promotes_complete_artifacts(
     assert str(tmp_path) not in json.dumps(manifest)
     assert (final_dir / "mineru" / "stdout.log").read_text(encoding="utf-8") == "mineru stdout"
     assert not list((settings.data_dir / "parsing").glob(".*"))
+    assert not (settings.data_dir / "chunking" / str(DOCUMENT_ID)).exists()
+
+
+def test_successful_reparse_removes_existing_chunk_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "source.pdf"
+    source_path.write_bytes(b"%PDF-real-source")
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data")
+    monkeypatch.setattr("knowledge_scope.parsing.service.run_mineru", _fake_mineru_run)
+
+    parse_document_file(DOCUMENT_ID, source_path, _sha256(source_path), settings)
+    chunking_dir = settings.data_dir / "chunking" / str(DOCUMENT_ID)
+    chunking_dir.mkdir(parents=True)
+    (chunking_dir / "chunks.json").write_text("old chunks", encoding="utf-8")
+
+    parse_document_file(DOCUMENT_ID, source_path, _sha256(source_path), settings)
+
+    assert not chunking_dir.exists()
+    assert not list((settings.data_dir / "parsing").glob(".*"))
+
+
+def test_failed_reparse_leaves_previous_parsing_and_chunking_artifacts_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "source.pdf"
+    source_path.write_bytes(b"%PDF-real-source")
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data")
+    monkeypatch.setattr("knowledge_scope.parsing.service.run_mineru", _fake_mineru_run)
+    parse_document_file(DOCUMENT_ID, source_path, _sha256(source_path), settings)
+
+    parsing_dir = settings.data_dir / "parsing" / str(DOCUMENT_ID)
+    canonical_before = (parsing_dir / "canonical.json").read_bytes()
+    chunking_dir = settings.data_dir / "chunking" / str(DOCUMENT_ID)
+    chunking_dir.mkdir(parents=True)
+    chunks_path = chunking_dir / "chunks.json"
+    chunks_path.write_bytes(b"old chunks")
+
+    def fail(*_: object, **__: object) -> MineruRunResult:
+        raise MineruRunnerError("MinerU exited with code 3")
+
+    monkeypatch.setattr("knowledge_scope.parsing.service.run_mineru", fail)
+
+    with pytest.raises(DocumentParseError, match="code 3"):
+        parse_document_file(DOCUMENT_ID, source_path, _sha256(source_path), settings)
+
+    assert (parsing_dir / "canonical.json").read_bytes() == canonical_before
+    assert chunks_path.read_bytes() == b"old chunks"
+    assert not list((settings.data_dir / "parsing").glob(".*"))
 
 
 def test_failed_parse_does_not_leave_a_successful_artifact(

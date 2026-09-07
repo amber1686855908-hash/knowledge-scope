@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from uuid import UUID
@@ -315,13 +316,18 @@ def test_captionless_image_is_represented_by_asset_ref_without_fake_text() -> No
         [[ImageBlock(block_id="p1-b1", reading_order=0, asset_ref="assets/image.png")]]
     )
 
-    chunk = chunk_document(
-        document, ChunkingConfig(target_chars=100, max_chars=200, min_chars=0)
-    ).chunks[0]
+    config = ChunkingConfig(target_chars=100, max_chars=200, min_chars=0)
+    chunked = chunk_document(document, config)
+    chunk = chunked.chunks[0]
 
     assert chunk.text == ""
     assert chunk.content_types == ["image"]
     assert chunk.asset_refs == ["assets/image.png"]
+    assert summarize_chunked_document(document, chunked, config)["asset_ref_lineage_coverage"] == {
+        "source_asset_blocks": 1,
+        "referenced_asset_blocks": 1,
+        "coverage_rate": 1.0,
+    }
 
 
 def test_formula_reclaims_nearby_whole_block_context_without_crossing_budget() -> None:
@@ -438,8 +444,25 @@ def test_chunk_document_by_id_persists_validated_artifacts_atomically(tmp_path: 
     assert result.chunk_count == len(stored.chunks) == 1
     assert result.chunks_ref == f"chunking/{DOCUMENT_ID}/chunks.json"
     assert manifest["source_canonical_ref"] == f"parsing/{DOCUMENT_ID}/canonical.json"
+    source_hash = hashlib.sha256(canonical_path.read_bytes()).hexdigest()
+    assert manifest["source_canonical_sha256"] == source_hash
+    assert len(source_hash) == 64
+    assert source_hash == source_hash.lower()
     assert str(tmp_path) not in manifest_path.read_text(encoding="utf-8")
 
     first_chunks = chunked_path.read_bytes()
     chunk_document_by_id(DOCUMENT_ID, settings)
     assert chunked_path.read_bytes() == first_chunks
+    same_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert same_manifest["source_canonical_sha256"] == source_hash
+
+    changed_document = _document(
+        [[_title("p1-b1", 0, "章节"), _text("p1-b2", 1, "更新后的内容。")]]
+    )
+    canonical_path.write_text(changed_document.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    chunk_document_by_id(DOCUMENT_ID, settings)
+    changed_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    changed_hash = hashlib.sha256(canonical_path.read_bytes()).hexdigest()
+    assert changed_manifest["source_canonical_sha256"] == changed_hash
+    assert changed_hash != source_hash

@@ -36,6 +36,7 @@ from .mineru_runner import (
 from .models import CANONICAL_SCHEMA_VERSION
 
 PARSING_DIRECTORY_NAME = "parsing"
+CHUNKING_DIRECTORY_NAME = "chunking"
 MAX_MANIFEST_WARNING_COUNT = 100
 MAX_MANIFEST_WARNING_LENGTH = 512
 
@@ -75,7 +76,7 @@ def _write_atomically(path: Path, content: str) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
-def _promote_staging(staging_dir: Path, final_dir: Path) -> None:
+def _promote_staging(staging_dir: Path, final_dir: Path) -> Path | None:
     """Atomically promote a complete staging tree while retaining old output on failure."""
     final_dir.parent.mkdir(parents=True, exist_ok=True)
     backup_dir: Path | None = None
@@ -94,8 +95,35 @@ def _promote_staging(staging_dir: Path, final_dir: Path) -> None:
                 ) from restore_error
         raise DocumentParseError("parsed artifacts could not be promoted") from error
     else:
+        return backup_dir
+
+
+def _restore_promoted_artifacts(final_dir: Path, backup_dir: Path | None) -> None:
+    """Remove a new parse result and restore the previous one after invalidation failure."""
+    try:
+        if final_dir.exists() or final_dir.is_symlink():
+            shutil.rmtree(final_dir)
         if backup_dir is not None:
-            shutil.rmtree(backup_dir, ignore_errors=True)
+            os.replace(backup_dir, final_dir)
+    except OSError as error:
+        raise DocumentParseError(
+            "parsed artifacts could not be invalidated or previous output restored"
+        ) from error
+
+
+def _invalidate_chunking_artifacts(document_id: UUID, settings: Settings) -> None:
+    """Remove derived chunks only after a new canonical artifact is promoted."""
+    chunking_path = Path(settings.data_dir).resolve() / CHUNKING_DIRECTORY_NAME / str(document_id)
+    if not chunking_path.exists() and not chunking_path.is_symlink():
+        return
+    if chunking_path.is_symlink() or not chunking_path.is_dir():
+        raise DocumentParseError("chunking artifact directory is invalid")
+    try:
+        shutil.rmtree(chunking_path)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise DocumentParseError("chunk artifacts could not be invalidated") from error
 
 
 def _artifact_root(settings: Settings) -> Path:
@@ -208,7 +236,14 @@ def parse_document_file(
             )
             + "\n",
         )
-        _promote_staging(staging_dir, final_dir)
+        previous_dir = _promote_staging(staging_dir, final_dir)
+        try:
+            _invalidate_chunking_artifacts(document_id, settings)
+        except DocumentParseError:
+            _restore_promoted_artifacts(final_dir, previous_dir)
+            raise
+        if previous_dir is not None:
+            shutil.rmtree(previous_dir, ignore_errors=True)
     except DocumentParseError:
         raise
     except (MineruAdapterError, MineruRunnerError) as error:
