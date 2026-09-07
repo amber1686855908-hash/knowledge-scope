@@ -1,0 +1,729 @@
+{
+  "all_gold_blocks_covered": true,
+  "annotation_identity": "query -> evidence(document_id, page_number, source_block_ids); query_source is audit-only",
+  "candidate_count": 162,
+  "candidate_generation": {
+    "accepted_draft_count": 1169,
+    "no_answer_evidence_count": 2107,
+    "rejected_by_quality_gate": {
+      "answer_option_fragment": 10,
+      "context_dependent_question": 67,
+      "duplicate_draft": 3,
+      "ellipsis_or_truncation": 132,
+      "formatting_or_ocr_fragment": 170,
+      "formatting_or_ocr_prefix": 247,
+      "formatting_or_ocr_suffix": 91,
+      "generic_heading": 13,
+      "instructional_or_narrative_fragment": 18,
+      "instructional_or_ocr_fragment": 1,
+      "instructional_or_personal_prompt": 171,
+      "invalid_definition_concept": 195,
+      "invalid_derived_entity": 192,
+      "no_answer_evidence": 2107,
+      "non_relational_formula": 129,
+      "non_standalone_reference": 1492,
+      "not_a_natural_question": 411,
+      "overlong_question": 72,
+      "short_fragment": 377,
+      "subjective_prompt": 196,
+      "unanswerable_table_header": 75,
+      "unanswerable_table_row": 235,
+      "unbalanced_source_fragment": 32,
+      "unbounded_formula": 807,
+      "unstructured_table": 41
+    },
+    "rejected_count": 7284,
+    "source_question_count": 52
+  },
+  "chunk_config_fingerprints": [
+    "4471abd3ca3fae31890a04703d39cfd1af8f5ba33ab0fd9e46f6580f871bdb7b"
+  ],
+  "chunk_count": 7524,
+  "corpus_document_count": 255,
+  "exclusion_counts": {
+    "captionless_image_only": 4392,
+    "image_evidence_out_of_scope": 1760,
+    "table_missing_content": 13
+  },
+  "files": [
+    "candidates.jsonl",
+    "chunk_index.jsonl",
+    "exclusions.jsonl",
+    "materialized.jsonl",
+    "retrieval-eval-v1/dev.jsonl",
+    "retrieval-eval-v1/manifest.json",
+    "retrieval-eval-v1/materialized.jsonl",
+    "retrieval-eval-v1/test.jsonl",
+    "review-pack.jsonl"
+  ],
+  "final_dataset": {
+    "action_counts": {
+      "accept": 12,
+      "edit": 96,
+      "reject": 54
+    },
+    "all_gold_blocks_covered": true,
+    "candidate_count": 162,
+    "dataset_version": "retrieval-eval-v1",
+    "leakage": {
+      "duplicate_normalized_query_count": 0,
+      "evidence_fingerprint_drift_count": 0,
+      "evidence_not_covered_count": 0,
+      "query_in_gold_chunk_count": 0,
+      "query_in_gold_evidence_count": 0,
+      "repeated_evidence_group_count": 3,
+      "repeated_relevant_chunk_group_count": 7,
+      "split_leakage_group_count": 0
+    },
+    "query_source_count": 30,
+    "query_type_counts": {
+      "comparison": 6,
+      "cross_block": 8,
+      "definition": 25,
+      "explanation": 25,
+      "factual": 31,
+      "formula_or_table": 13
+    },
+    "rejected_count": 54,
+    "repository_safe_file": "docs/benchmarks/a2-1-retrieval-eval-v1.jsonl",
+    "runtime_files": [
+      "dev.jsonl",
+      "test.jsonl",
+      "materialized.jsonl",
+      "manifest.json"
+    ],
+    "schema_version": "1.0",
+    "source_recommendations": "A2.1_人工审核建议.jsonl",
+    "split_counts": {
+      "dev": 72,
+      "test": 36
+    },
+    "subject_counts": {
+      "化学": 12,
+      "历史": 12,
+      "地理": 12,
+      "思想政治": 12,
+      "数学": 12,
+      "物理": 12,
+      "生物": 12,
+      "英语": 12,
+      "语文": 12
+    },
+    "subject_split_counts": {
+      "化学": {
+        "dev": 8,
+        "test": 4
+      },
+      "历史": {
+        "dev": 8,
+        "test": 4
+      },
+      "地理": {
+        "dev": 8,
+        "test": 4
+      },
+      "思想政治": {
+        "dev": 8,
+        "test": 4
+      },
+      "数学": {
+        "dev": 8,
+        "test": 4
+      },
+      "物理": {
+        "dev": 8,
+        "test": 4
+      },
+      "生物": {
+        "dev": 8,
+        "test": 4
+      },
+      "英语": {
+        "dev": 8,
+        "test": 4
+      },
+      "语文": {
+        "dev": 8,
+        "test": 4
+      }
+    },
+    "verified_count": 108
+  },
+  "leakage": {
+    "leakage_group_count": 137,
+    "query_in_gold_chunk_count": 0,
+    "query_in_gold_evidence_count": 0,
+    "repeated_evidence_groups": [
+      {
+        "item_ids": [
+          "a2-1-6a8217e614c2a31bf40204f9122f618a62157f037a25576ed39516388d1a9fca",
+          "a2-1-fd7c0b71483067deba20a80d2daea0da183fad4f0c71a22b51032976e67f4da8"
+        ],
+        "kind": "evidence",
+        "signature": "070987a499aeed4d20178c2c29864690b155ce61453e5b869eb4d4bbfbdb5fae"
+      },
+      {
+        "item_ids": [
+          "a2-1-be38bb5dae3c4d5348e7f2da3a711f55c8bd0a2af86926f55f04a11896b72504",
+          "a2-1-e13b7ec4c17241362bbf462ba035d87500b7b9f33f489737d8677c68f39b8e13"
+        ],
+        "kind": "evidence",
+        "signature": "19b38e0ec0925e369c3be8b1b578bfaaa06cd05aaedb1a23ae28ae6872f55218"
+      },
+      {
+        "item_ids": [
+          "a2-1-9adadbead43bb0df2c86a3beca5116a735177fde50c97db6c18b2bff80d86b14",
+          "a2-1-c64c2c497b0a49af0fc66e9e4b0055646212ba557632030c3f108e9272cab6e7"
+        ],
+        "kind": "evidence",
+        "signature": "3a6a8abd339cb0f42ebee1be90aa960893be3156a559d1f7dd8a14cee131a52a"
+      },
+      {
+        "item_ids": [
+          "a2-1-6e40fabdc8aa99af24178293478e2eca1b744af561972df617dcc035dd4769df",
+          "a2-1-929baa2cb4b4afe492a0f487fb1b257351842ec5f631c67d8512709814ca32d1"
+        ],
+        "kind": "evidence",
+        "signature": "3ce26745d5dfc82d342045b874fc8a375a29767d173db9287ed20fd6801294d7"
+      },
+      {
+        "item_ids": [
+          "a2-1-2516a6f4e7a320ff24cd120cdbb78a18fbb2abe76a0598fdd9cdf68d369a41c1",
+          "a2-1-730ef5e3affe5a04734a23ef1bb63b42e48c4525c6349583b24bb3087eb35592",
+          "a2-1-8a0a655bb04de5c93f05cbdd2812f4986016e2bf32b88791387525a74eb7d1eb"
+        ],
+        "kind": "evidence",
+        "signature": "662e4fa7ee9ae55c24e345b0b3b522e5c80b89dcad454d03b36b8995c48d9165"
+      },
+      {
+        "item_ids": [
+          "a2-1-05abffbc9cfb2b8e86ee1dafb2b67c9bd10176c648f1812122dc650ad9a81244",
+          "a2-1-bc277431017d3b1cfc56e6685f7a36948343e4d87a6827e63c350e284146fb41"
+        ],
+        "kind": "evidence",
+        "signature": "79db50eeb78e6b7b024cad556adc65823d156602cb5f53b1d74baffb6893a022"
+      },
+      {
+        "item_ids": [
+          "a2-1-609bf55e5883772bbd70618b9853fc453b52f7873376161b047c3c2a5aecfaa7",
+          "a2-1-cd30c7c566e0033727feecb73597872f150745d35f01e429c859674f9bc1e431"
+        ],
+        "kind": "evidence",
+        "signature": "8a715876d9c7137ae2b02ea341e0be0d85119519194cccfd0618c5c78915d66b"
+      },
+      {
+        "item_ids": [
+          "a2-1-9515d4e0eb7ebd1bf4b39185d3776bc387a2e179c4da0a72702f6cfcce75ed8a",
+          "a2-1-db9d56162d6c1ade4c39d1136121241a1ad7a57283f9baf713ef5aebc0bc41a1"
+        ],
+        "kind": "evidence",
+        "signature": "8e0490b5b03071c7470432a2f80f3f0161bc94668bd1f3c128935d3c5143cb5a"
+      },
+      {
+        "item_ids": [
+          "a2-1-9de1ab2f002628fa77a0d4c1492e19095f889d0f56dafbde0e56539b71da0d11",
+          "a2-1-ac60d1999025341900302ba5b754dc480a3d9f969cf91f3439b885c094d065fb",
+          "a2-1-ce7cd4404d5a6392ffebfeb2087a3f9a88e7053184fc2232af0d4942015a1a46",
+          "a2-1-eeeb38c0ad3e9b984f66e9b120f7e861ccc55b5599f77aef0ead39fc42e9a80f",
+          "a2-1-f59d68b4dbe155f2a655dde5ca5dc725166764bf7e2ac579db863a4f29a9ccbb"
+        ],
+        "kind": "evidence",
+        "signature": "980989697f8f3864b77e8dc89d05990810823dc5a807d851335f491b2808cf22"
+      },
+      {
+        "item_ids": [
+          "a2-1-d4cfaf32b501572e1b7d7ff44390829ba942462987f16f828be798c8e45de080",
+          "a2-1-e6fabe5a50dc4b3e2350c81348010b8354a89ae191c9b47bb5979cec36228c53"
+        ],
+        "kind": "evidence",
+        "signature": "9b238dc6b1027ac1dcdb86337359dad8b6c392bf9816dc1c02b9b83430d79442"
+      },
+      {
+        "item_ids": [
+          "a2-1-5c85f725fc06662bb0adbae9a1064182aae652fec271e187428bfbfdd6605919",
+          "a2-1-83bc5deebf2dfb7ea221e6dc549b2d6154772401fb0460f01560f064dfda077a"
+        ],
+        "kind": "evidence",
+        "signature": "9b5a2f5aed1342bdbd6f1429c973bad5198ab3400a1e1a61cdd17285dc13e4d2"
+      },
+      {
+        "item_ids": [
+          "a2-1-4e313d2494326c7c4e7fa97990bf7558e3412f0268536f0d51da933d55c6e737",
+          "a2-1-5370d7d5d60b0c6184d524de43eef9d70815e642c2f75bc214cfe1a687904677",
+          "a2-1-5a579450786fca1d18a6c8029f295f59512b9f44fcd45bf3f5248cd684d1656a",
+          "a2-1-8d2aca05f3cd4444c0a6c4619719379d7c90bbda7af1de5dd1c8f306ed9b4e08"
+        ],
+        "kind": "evidence",
+        "signature": "de3f4877dc8fbca0b8eea1b44b41570f2d3fc29dfec891dad70a376f606d58b5"
+      },
+      {
+        "item_ids": [
+          "a2-1-3eb0124c9064fac239b8eaff6a9a43aae61f81e12a4d8e699ad2aaabd19d65dd",
+          "a2-1-5fb3eb7b85ef2b642ad3bc10298c953a212bd3b1ec6c5d8aac0e1ac0672e38e6"
+        ],
+        "kind": "evidence",
+        "signature": "e75c0240a84f13029a6bf86c531907f29f44f1b2d6cc2316a878ed04c406584e"
+      }
+    ],
+    "repeated_relevant_chunk_groups": [
+      {
+        "item_ids": [
+          "a2-1-5c85f725fc06662bb0adbae9a1064182aae652fec271e187428bfbfdd6605919",
+          "a2-1-83bc5deebf2dfb7ea221e6dc549b2d6154772401fb0460f01560f064dfda077a"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "04ab437de9c20fa941226526a3b031d36954d557c5c2df16a99773643e112f23"
+      },
+      {
+        "item_ids": [
+          "a2-1-678dea0e5fae12705ff49b76fca8417223d0f2532de5bc3cb27bc0d94b9b616f",
+          "a2-1-e6bb091b08508fa2f349a363a0f118675882f30596e7a21fc27ed893d5053dc1"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "2a5ace3f9b00b1b380798fc8e3202f209140da1d2182058d9c1df24cd81c7199"
+      },
+      {
+        "item_ids": [
+          "a2-1-2516a6f4e7a320ff24cd120cdbb78a18fbb2abe76a0598fdd9cdf68d369a41c1",
+          "a2-1-730ef5e3affe5a04734a23ef1bb63b42e48c4525c6349583b24bb3087eb35592",
+          "a2-1-8a0a655bb04de5c93f05cbdd2812f4986016e2bf32b88791387525a74eb7d1eb"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "4546ecf01fc0557d392852de37cecef3e12304eedc572f04e6aac2bbb3d16234"
+      },
+      {
+        "item_ids": [
+          "a2-1-1d8d80f9e0a5315410731b94f734e0813f357f31ea8776269687275461587a3b",
+          "a2-1-7d07b7506e1ecb0363dda816e4c84b6886f4317b837880f8f58b5269f5dbc807"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "4ad61b1edaebf01d0227e29643d5ace1dd4fe8db17ecc16c468dcc183b7f5ef3"
+      },
+      {
+        "item_ids": [
+          "a2-1-9515d4e0eb7ebd1bf4b39185d3776bc387a2e179c4da0a72702f6cfcce75ed8a",
+          "a2-1-db9d56162d6c1ade4c39d1136121241a1ad7a57283f9baf713ef5aebc0bc41a1"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "4e91c0a5f1a35fb739987ed0544d0eafa6c1cd68edf99a678d7bd16be9429266"
+      },
+      {
+        "item_ids": [
+          "a2-1-4d15f6de49e6cf91c6fef1759a3eae374bc2985a445304e1878347bc2165ffab",
+          "a2-1-675c5d9343d1f85dd03b0a8bfa69e8ecf6273fa573086cbb955f3aa874373bf0"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "7a5c37d82285a1259a08c9bd3db0df7dd5b2df53d8a8ef5901b66aebfec94bda"
+      },
+      {
+        "item_ids": [
+          "a2-1-609bf55e5883772bbd70618b9853fc453b52f7873376161b047c3c2a5aecfaa7",
+          "a2-1-cd30c7c566e0033727feecb73597872f150745d35f01e429c859674f9bc1e431"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "9145e01bb62df7785762a28d2b985f8d83ba84a7f630fce89bb16c97b94f0dab"
+      },
+      {
+        "item_ids": [
+          "a2-1-05abffbc9cfb2b8e86ee1dafb2b67c9bd10176c648f1812122dc650ad9a81244",
+          "a2-1-bc277431017d3b1cfc56e6685f7a36948343e4d87a6827e63c350e284146fb41"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "970eae06dd8d2d857b816526032d69523c5a32b8608fdc056e278de3a1fb10e9"
+      },
+      {
+        "item_ids": [
+          "a2-1-9de1ab2f002628fa77a0d4c1492e19095f889d0f56dafbde0e56539b71da0d11",
+          "a2-1-ac60d1999025341900302ba5b754dc480a3d9f969cf91f3439b885c094d065fb",
+          "a2-1-ce7cd4404d5a6392ffebfeb2087a3f9a88e7053184fc2232af0d4942015a1a46",
+          "a2-1-eeeb38c0ad3e9b984f66e9b120f7e861ccc55b5599f77aef0ead39fc42e9a80f",
+          "a2-1-f59d68b4dbe155f2a655dde5ca5dc725166764bf7e2ac579db863a4f29a9ccbb"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "9c850cdad5e994e8de419ac07dc90c8e51660f484860b0d7215accea713d0f45"
+      },
+      {
+        "item_ids": [
+          "a2-1-9adadbead43bb0df2c86a3beca5116a735177fde50c97db6c18b2bff80d86b14",
+          "a2-1-c64c2c497b0a49af0fc66e9e4b0055646212ba557632030c3f108e9272cab6e7"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "a5e54ffb494d42285e3c633d1c455ebfdee35577f2a825aa80da529153a9ce82"
+      },
+      {
+        "item_ids": [
+          "a2-1-6e40fabdc8aa99af24178293478e2eca1b744af561972df617dcc035dd4769df",
+          "a2-1-929baa2cb4b4afe492a0f487fb1b257351842ec5f631c67d8512709814ca32d1",
+          "a2-1-c206853197f77088412ccff61911933aa5571ce6cd4d463be899f17d4b9b4a0a"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "baaebefad53c5ad8ec5670ade1d5e548bbee03af059342af5f499f54aa564e2c"
+      },
+      {
+        "item_ids": [
+          "a2-1-6a8217e614c2a31bf40204f9122f618a62157f037a25576ed39516388d1a9fca",
+          "a2-1-fd7c0b71483067deba20a80d2daea0da183fad4f0c71a22b51032976e67f4da8"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "bc675a26cbb033dc48f96bc0dcdc0afb106207f399b1d7df09de3c2206b3e3bc"
+      },
+      {
+        "item_ids": [
+          "a2-1-1bd617e0edd621c7edf9be71e55f14d6bc90b025189df6ebbc16f18de6450228",
+          "a2-1-7a647f0f01524ec4d9b53f1df3aad1104ed64e9311f9ffa941017febaada0991"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "c2639caf48dc1c1ad9b8c602b453b136bd806e630197d5be6cf0069380c39940"
+      },
+      {
+        "item_ids": [
+          "a2-1-4e313d2494326c7c4e7fa97990bf7558e3412f0268536f0d51da933d55c6e737",
+          "a2-1-5370d7d5d60b0c6184d524de43eef9d70815e642c2f75bc214cfe1a687904677",
+          "a2-1-5a579450786fca1d18a6c8029f295f59512b9f44fcd45bf3f5248cd684d1656a",
+          "a2-1-8d2aca05f3cd4444c0a6c4619719379d7c90bbda7af1de5dd1c8f306ed9b4e08"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "c5175efe18aad3a3e9fdcc2701c02a8d259993895ee554f211cbfe7fc7810002"
+      },
+      {
+        "item_ids": [
+          "a2-1-3eb0124c9064fac239b8eaff6a9a43aae61f81e12a4d8e699ad2aaabd19d65dd",
+          "a2-1-5fb3eb7b85ef2b642ad3bc10298c953a212bd3b1ec6c5d8aac0e1ac0672e38e6"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "e348ddcf29fede19ab561e7695e64d4dc48584551b7a16047b024e04640de18d"
+      },
+      {
+        "item_ids": [
+          "a2-1-d4cfaf32b501572e1b7d7ff44390829ba942462987f16f828be798c8e45de080",
+          "a2-1-e6fabe5a50dc4b3e2350c81348010b8354a89ae191c9b47bb5979cec36228c53"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "e66c2a01c3625e4742f445f5b0b2569af96014a7b73a45dcacaf4e47b7b53ea8"
+      },
+      {
+        "item_ids": [
+          "a2-1-be38bb5dae3c4d5348e7f2da3a711f55c8bd0a2af86926f55f04a11896b72504",
+          "a2-1-e13b7ec4c17241362bbf462ba035d87500b7b9f33f489737d8677c68f39b8e13"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "e77d2447aa6b84db0eab1ed8d7db6c3c4fd661509075fc0a869a32c45e634d36"
+      },
+      {
+        "item_ids": [
+          "a2-1-4f3ae236af3b898bfd23c548647ca69125f1ff24569ffe0f5c4c2ce417d203f0",
+          "a2-1-dbc0d93965e13b14868b0653f6688a6a962daf92fb77690568e57acd797f9d92"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "ee1eb7cb5384f1482fc6a91c253551a484302f4f3637de78af520a5d421f72f2"
+      }
+    ]
+  },
+  "query_source_count": 52,
+  "query_type_counts": {
+    "comparison": 6,
+    "cross_block": 8,
+    "definition": 45,
+    "explanation": 29,
+    "factual": 44,
+    "formula_or_table": 30
+  },
+  "review": {
+    "action_counts": {
+      "accept": 12,
+      "edit": 96,
+      "reject": 54
+    },
+    "recommendation_file": "A2.1_人工审核建议.jsonl"
+  },
+  "schema_version": "1.0",
+  "status_counts": {
+    "candidate": 0,
+    "rejected": 54,
+    "verified": 108
+  },
+  "subject_counts": {
+    "化学": 18,
+    "历史": 18,
+    "地理": 18,
+    "思想政治": 18,
+    "数学": 18,
+    "物理": 18,
+    "生物": 18,
+    "英语": 18,
+    "语文": 18
+  },
+  "validation": {
+    "candidate_count": 162,
+    "issue_count": 0,
+    "issues": [],
+    "query_in_gold_chunk_count": 0,
+    "query_in_gold_evidence_count": 0,
+    "repeated_evidence_groups": [
+      {
+        "item_ids": [
+          "a2-1-6a8217e614c2a31bf40204f9122f618a62157f037a25576ed39516388d1a9fca",
+          "a2-1-fd7c0b71483067deba20a80d2daea0da183fad4f0c71a22b51032976e67f4da8"
+        ],
+        "kind": "evidence",
+        "signature": "070987a499aeed4d20178c2c29864690b155ce61453e5b869eb4d4bbfbdb5fae"
+      },
+      {
+        "item_ids": [
+          "a2-1-be38bb5dae3c4d5348e7f2da3a711f55c8bd0a2af86926f55f04a11896b72504",
+          "a2-1-e13b7ec4c17241362bbf462ba035d87500b7b9f33f489737d8677c68f39b8e13"
+        ],
+        "kind": "evidence",
+        "signature": "19b38e0ec0925e369c3be8b1b578bfaaa06cd05aaedb1a23ae28ae6872f55218"
+      },
+      {
+        "item_ids": [
+          "a2-1-9adadbead43bb0df2c86a3beca5116a735177fde50c97db6c18b2bff80d86b14",
+          "a2-1-c64c2c497b0a49af0fc66e9e4b0055646212ba557632030c3f108e9272cab6e7"
+        ],
+        "kind": "evidence",
+        "signature": "3a6a8abd339cb0f42ebee1be90aa960893be3156a559d1f7dd8a14cee131a52a"
+      },
+      {
+        "item_ids": [
+          "a2-1-6e40fabdc8aa99af24178293478e2eca1b744af561972df617dcc035dd4769df",
+          "a2-1-929baa2cb4b4afe492a0f487fb1b257351842ec5f631c67d8512709814ca32d1"
+        ],
+        "kind": "evidence",
+        "signature": "3ce26745d5dfc82d342045b874fc8a375a29767d173db9287ed20fd6801294d7"
+      },
+      {
+        "item_ids": [
+          "a2-1-2516a6f4e7a320ff24cd120cdbb78a18fbb2abe76a0598fdd9cdf68d369a41c1",
+          "a2-1-730ef5e3affe5a04734a23ef1bb63b42e48c4525c6349583b24bb3087eb35592",
+          "a2-1-8a0a655bb04de5c93f05cbdd2812f4986016e2bf32b88791387525a74eb7d1eb"
+        ],
+        "kind": "evidence",
+        "signature": "662e4fa7ee9ae55c24e345b0b3b522e5c80b89dcad454d03b36b8995c48d9165"
+      },
+      {
+        "item_ids": [
+          "a2-1-05abffbc9cfb2b8e86ee1dafb2b67c9bd10176c648f1812122dc650ad9a81244",
+          "a2-1-bc277431017d3b1cfc56e6685f7a36948343e4d87a6827e63c350e284146fb41"
+        ],
+        "kind": "evidence",
+        "signature": "79db50eeb78e6b7b024cad556adc65823d156602cb5f53b1d74baffb6893a022"
+      },
+      {
+        "item_ids": [
+          "a2-1-609bf55e5883772bbd70618b9853fc453b52f7873376161b047c3c2a5aecfaa7",
+          "a2-1-cd30c7c566e0033727feecb73597872f150745d35f01e429c859674f9bc1e431"
+        ],
+        "kind": "evidence",
+        "signature": "8a715876d9c7137ae2b02ea341e0be0d85119519194cccfd0618c5c78915d66b"
+      },
+      {
+        "item_ids": [
+          "a2-1-9515d4e0eb7ebd1bf4b39185d3776bc387a2e179c4da0a72702f6cfcce75ed8a",
+          "a2-1-db9d56162d6c1ade4c39d1136121241a1ad7a57283f9baf713ef5aebc0bc41a1"
+        ],
+        "kind": "evidence",
+        "signature": "8e0490b5b03071c7470432a2f80f3f0161bc94668bd1f3c128935d3c5143cb5a"
+      },
+      {
+        "item_ids": [
+          "a2-1-9de1ab2f002628fa77a0d4c1492e19095f889d0f56dafbde0e56539b71da0d11",
+          "a2-1-ac60d1999025341900302ba5b754dc480a3d9f969cf91f3439b885c094d065fb",
+          "a2-1-ce7cd4404d5a6392ffebfeb2087a3f9a88e7053184fc2232af0d4942015a1a46",
+          "a2-1-eeeb38c0ad3e9b984f66e9b120f7e861ccc55b5599f77aef0ead39fc42e9a80f",
+          "a2-1-f59d68b4dbe155f2a655dde5ca5dc725166764bf7e2ac579db863a4f29a9ccbb"
+        ],
+        "kind": "evidence",
+        "signature": "980989697f8f3864b77e8dc89d05990810823dc5a807d851335f491b2808cf22"
+      },
+      {
+        "item_ids": [
+          "a2-1-d4cfaf32b501572e1b7d7ff44390829ba942462987f16f828be798c8e45de080",
+          "a2-1-e6fabe5a50dc4b3e2350c81348010b8354a89ae191c9b47bb5979cec36228c53"
+        ],
+        "kind": "evidence",
+        "signature": "9b238dc6b1027ac1dcdb86337359dad8b6c392bf9816dc1c02b9b83430d79442"
+      },
+      {
+        "item_ids": [
+          "a2-1-5c85f725fc06662bb0adbae9a1064182aae652fec271e187428bfbfdd6605919",
+          "a2-1-83bc5deebf2dfb7ea221e6dc549b2d6154772401fb0460f01560f064dfda077a"
+        ],
+        "kind": "evidence",
+        "signature": "9b5a2f5aed1342bdbd6f1429c973bad5198ab3400a1e1a61cdd17285dc13e4d2"
+      },
+      {
+        "item_ids": [
+          "a2-1-4e313d2494326c7c4e7fa97990bf7558e3412f0268536f0d51da933d55c6e737",
+          "a2-1-5370d7d5d60b0c6184d524de43eef9d70815e642c2f75bc214cfe1a687904677",
+          "a2-1-5a579450786fca1d18a6c8029f295f59512b9f44fcd45bf3f5248cd684d1656a",
+          "a2-1-8d2aca05f3cd4444c0a6c4619719379d7c90bbda7af1de5dd1c8f306ed9b4e08"
+        ],
+        "kind": "evidence",
+        "signature": "de3f4877dc8fbca0b8eea1b44b41570f2d3fc29dfec891dad70a376f606d58b5"
+      },
+      {
+        "item_ids": [
+          "a2-1-3eb0124c9064fac239b8eaff6a9a43aae61f81e12a4d8e699ad2aaabd19d65dd",
+          "a2-1-5fb3eb7b85ef2b642ad3bc10298c953a212bd3b1ec6c5d8aac0e1ac0672e38e6"
+        ],
+        "kind": "evidence",
+        "signature": "e75c0240a84f13029a6bf86c531907f29f44f1b2d6cc2316a878ed04c406584e"
+      }
+    ],
+    "repeated_relevant_chunk_groups": [
+      {
+        "item_ids": [
+          "a2-1-5c85f725fc06662bb0adbae9a1064182aae652fec271e187428bfbfdd6605919",
+          "a2-1-83bc5deebf2dfb7ea221e6dc549b2d6154772401fb0460f01560f064dfda077a"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "04ab437de9c20fa941226526a3b031d36954d557c5c2df16a99773643e112f23"
+      },
+      {
+        "item_ids": [
+          "a2-1-678dea0e5fae12705ff49b76fca8417223d0f2532de5bc3cb27bc0d94b9b616f",
+          "a2-1-e6bb091b08508fa2f349a363a0f118675882f30596e7a21fc27ed893d5053dc1"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "2a5ace3f9b00b1b380798fc8e3202f209140da1d2182058d9c1df24cd81c7199"
+      },
+      {
+        "item_ids": [
+          "a2-1-2516a6f4e7a320ff24cd120cdbb78a18fbb2abe76a0598fdd9cdf68d369a41c1",
+          "a2-1-730ef5e3affe5a04734a23ef1bb63b42e48c4525c6349583b24bb3087eb35592",
+          "a2-1-8a0a655bb04de5c93f05cbdd2812f4986016e2bf32b88791387525a74eb7d1eb"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "4546ecf01fc0557d392852de37cecef3e12304eedc572f04e6aac2bbb3d16234"
+      },
+      {
+        "item_ids": [
+          "a2-1-1d8d80f9e0a5315410731b94f734e0813f357f31ea8776269687275461587a3b",
+          "a2-1-7d07b7506e1ecb0363dda816e4c84b6886f4317b837880f8f58b5269f5dbc807"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "4ad61b1edaebf01d0227e29643d5ace1dd4fe8db17ecc16c468dcc183b7f5ef3"
+      },
+      {
+        "item_ids": [
+          "a2-1-9515d4e0eb7ebd1bf4b39185d3776bc387a2e179c4da0a72702f6cfcce75ed8a",
+          "a2-1-db9d56162d6c1ade4c39d1136121241a1ad7a57283f9baf713ef5aebc0bc41a1"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "4e91c0a5f1a35fb739987ed0544d0eafa6c1cd68edf99a678d7bd16be9429266"
+      },
+      {
+        "item_ids": [
+          "a2-1-4d15f6de49e6cf91c6fef1759a3eae374bc2985a445304e1878347bc2165ffab",
+          "a2-1-675c5d9343d1f85dd03b0a8bfa69e8ecf6273fa573086cbb955f3aa874373bf0"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "7a5c37d82285a1259a08c9bd3db0df7dd5b2df53d8a8ef5901b66aebfec94bda"
+      },
+      {
+        "item_ids": [
+          "a2-1-609bf55e5883772bbd70618b9853fc453b52f7873376161b047c3c2a5aecfaa7",
+          "a2-1-cd30c7c566e0033727feecb73597872f150745d35f01e429c859674f9bc1e431"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "9145e01bb62df7785762a28d2b985f8d83ba84a7f630fce89bb16c97b94f0dab"
+      },
+      {
+        "item_ids": [
+          "a2-1-05abffbc9cfb2b8e86ee1dafb2b67c9bd10176c648f1812122dc650ad9a81244",
+          "a2-1-bc277431017d3b1cfc56e6685f7a36948343e4d87a6827e63c350e284146fb41"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "970eae06dd8d2d857b816526032d69523c5a32b8608fdc056e278de3a1fb10e9"
+      },
+      {
+        "item_ids": [
+          "a2-1-9de1ab2f002628fa77a0d4c1492e19095f889d0f56dafbde0e56539b71da0d11",
+          "a2-1-ac60d1999025341900302ba5b754dc480a3d9f969cf91f3439b885c094d065fb",
+          "a2-1-ce7cd4404d5a6392ffebfeb2087a3f9a88e7053184fc2232af0d4942015a1a46",
+          "a2-1-eeeb38c0ad3e9b984f66e9b120f7e861ccc55b5599f77aef0ead39fc42e9a80f",
+          "a2-1-f59d68b4dbe155f2a655dde5ca5dc725166764bf7e2ac579db863a4f29a9ccbb"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "9c850cdad5e994e8de419ac07dc90c8e51660f484860b0d7215accea713d0f45"
+      },
+      {
+        "item_ids": [
+          "a2-1-9adadbead43bb0df2c86a3beca5116a735177fde50c97db6c18b2bff80d86b14",
+          "a2-1-c64c2c497b0a49af0fc66e9e4b0055646212ba557632030c3f108e9272cab6e7"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "a5e54ffb494d42285e3c633d1c455ebfdee35577f2a825aa80da529153a9ce82"
+      },
+      {
+        "item_ids": [
+          "a2-1-6e40fabdc8aa99af24178293478e2eca1b744af561972df617dcc035dd4769df",
+          "a2-1-929baa2cb4b4afe492a0f487fb1b257351842ec5f631c67d8512709814ca32d1",
+          "a2-1-c206853197f77088412ccff61911933aa5571ce6cd4d463be899f17d4b9b4a0a"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "baaebefad53c5ad8ec5670ade1d5e548bbee03af059342af5f499f54aa564e2c"
+      },
+      {
+        "item_ids": [
+          "a2-1-6a8217e614c2a31bf40204f9122f618a62157f037a25576ed39516388d1a9fca",
+          "a2-1-fd7c0b71483067deba20a80d2daea0da183fad4f0c71a22b51032976e67f4da8"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "bc675a26cbb033dc48f96bc0dcdc0afb106207f399b1d7df09de3c2206b3e3bc"
+      },
+      {
+        "item_ids": [
+          "a2-1-1bd617e0edd621c7edf9be71e55f14d6bc90b025189df6ebbc16f18de6450228",
+          "a2-1-7a647f0f01524ec4d9b53f1df3aad1104ed64e9311f9ffa941017febaada0991"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "c2639caf48dc1c1ad9b8c602b453b136bd806e630197d5be6cf0069380c39940"
+      },
+      {
+        "item_ids": [
+          "a2-1-4e313d2494326c7c4e7fa97990bf7558e3412f0268536f0d51da933d55c6e737",
+          "a2-1-5370d7d5d60b0c6184d524de43eef9d70815e642c2f75bc214cfe1a687904677",
+          "a2-1-5a579450786fca1d18a6c8029f295f59512b9f44fcd45bf3f5248cd684d1656a",
+          "a2-1-8d2aca05f3cd4444c0a6c4619719379d7c90bbda7af1de5dd1c8f306ed9b4e08"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "c5175efe18aad3a3e9fdcc2701c02a8d259993895ee554f211cbfe7fc7810002"
+      },
+      {
+        "item_ids": [
+          "a2-1-3eb0124c9064fac239b8eaff6a9a43aae61f81e12a4d8e699ad2aaabd19d65dd",
+          "a2-1-5fb3eb7b85ef2b642ad3bc10298c953a212bd3b1ec6c5d8aac0e1ac0672e38e6"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "e348ddcf29fede19ab561e7695e64d4dc48584551b7a16047b024e04640de18d"
+      },
+      {
+        "item_ids": [
+          "a2-1-d4cfaf32b501572e1b7d7ff44390829ba942462987f16f828be798c8e45de080",
+          "a2-1-e6fabe5a50dc4b3e2350c81348010b8354a89ae191c9b47bb5979cec36228c53"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "e66c2a01c3625e4742f445f5b0b2569af96014a7b73a45dcacaf4e47b7b53ea8"
+      },
+      {
+        "item_ids": [
+          "a2-1-be38bb5dae3c4d5348e7f2da3a711f55c8bd0a2af86926f55f04a11896b72504",
+          "a2-1-e13b7ec4c17241362bbf462ba035d87500b7b9f33f489737d8677c68f39b8e13"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "e77d2447aa6b84db0eab1ed8d7db6c3c4fd661509075fc0a869a32c45e634d36"
+      },
+      {
+        "item_ids": [
+          "a2-1-4f3ae236af3b898bfd23c548647ca69125f1ff24569ffe0f5c4c2ce417d203f0",
+          "a2-1-dbc0d93965e13b14868b0653f6688a6a962daf92fb77690568e57acd797f9d92"
+        ],
+        "kind": "relevant_chunks",
+        "signature": "ee1eb7cb5384f1482fc6a91c253551a484302f4f3637de78af520a5d421f72f2"
+      }
+    ],
+    "valid": true
+  }
+}

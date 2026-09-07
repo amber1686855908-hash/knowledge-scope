@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knowledgescope.local/schemas/a2-1-retrieval-eval-v1.json",
+  "title": "KnowledgeScope A2.1 retrieval-eval-v1 item",
+  "description": "Repository-safe dev/test wrapper around the A2.1 canonical-evidence retrieval item.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dataset_version",
+    "split",
+    "leakage_group_id",
+    "item"
+  ],
+  "properties": {
+    "dataset_version": {
+      "const": "retrieval-eval-v1"
+    },
+    "split": {
+      "enum": [
+        "dev",
+        "test"
+      ]
+    },
+    "leakage_group_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "item": {
+      "allOf": [
+        {
+          "$ref": "a2-1-retrieval-eval-schema.json"
+        },
+        {
+          "properties": {
+            "verification_status": {
+              "const": "verified"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

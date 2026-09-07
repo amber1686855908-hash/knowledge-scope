@@ -21,6 +21,15 @@ from knowledge_scope.evaluation.parsing_benchmark import (
     inventory_corpus,
     run_benchmark,
 )
+from knowledge_scope.evaluation.retrieval_eval import (
+    QUERY_TYPES,
+    RetrievalEvalError,
+    apply_review_action,
+    finalize_retrieval_eval_dataset,
+    materialize_retrieval_eval_set,
+    regenerate_candidate_review_pack,
+    validate_runtime_evaluation,
+)
 from knowledge_scope.parsing.service import DocumentParseError, parse_document_by_id
 from knowledge_scope.shared import build_health_report, get_settings
 
@@ -86,6 +95,112 @@ def build_parser() -> argparse.ArgumentParser:
         "--inventory-only",
         action="store_true",
         help="scan and persist inventory without starting MinerU",
+    )
+
+    retrieval_eval = subparsers.add_parser(
+        "retrieval-eval",
+        help="build and review the canonical-evidence text retrieval evaluation set",
+    )
+    retrieval_actions = retrieval_eval.add_subparsers(dest="retrieval_action", required=True)
+    retrieval_build = retrieval_actions.add_parser(
+        "build",
+        help="materialize ignored chunks and candidate review artifacts",
+    )
+    retrieval_build.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    retrieval_build.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/corpus-manifest.jsonl"),
+    )
+    retrieval_build.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data/evaluation/a2-1"),
+    )
+    retrieval_refresh = retrieval_actions.add_parser(
+        "refresh-candidates",
+        help="refresh candidates and review artifacts while reusing the existing chunk index",
+    )
+    retrieval_refresh.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    retrieval_refresh.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/corpus-manifest.jsonl"),
+    )
+    retrieval_refresh.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data/evaluation/a2-1"),
+    )
+    retrieval_validate = retrieval_actions.add_parser(
+        "validate",
+        help="validate an existing ignored evaluation package against canonical evidence",
+    )
+    retrieval_validate.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    retrieval_validate.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/corpus-manifest.jsonl"),
+    )
+    retrieval_validate.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data/evaluation/a2-1"),
+    )
+    retrieval_review = retrieval_actions.add_parser(
+        "review",
+        help="accept, reject, or edit one local evaluation candidate",
+    )
+    retrieval_review.add_argument("--output", type=Path, default=Path("data/evaluation/a2-1"))
+    retrieval_review.add_argument("--item-id", required=True)
+    retrieval_review.add_argument("--action", choices=("accept", "reject", "edit"), required=True)
+    retrieval_review.add_argument("--query")
+    retrieval_review.add_argument("--query-type", choices=QUERY_TYPES)
+    retrieval_finalize = retrieval_actions.add_parser(
+        "finalize",
+        help="apply a complete human-review JSONL and build retrieval-eval-v1",
+    )
+    retrieval_finalize.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    retrieval_finalize.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/corpus-manifest.jsonl"),
+    )
+    retrieval_finalize.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data/evaluation/a2-1"),
+    )
+    retrieval_finalize.add_argument(
+        "--recommendations",
+        type=Path,
+        default=Path("data/evaluation/a2-1/A2.1_人工审核建议.jsonl"),
+    )
+    retrieval_finalize.add_argument(
+        "--final-output",
+        type=Path,
+        default=Path("data/evaluation/a2-1/retrieval-eval-v1"),
+    )
+    retrieval_finalize.add_argument(
+        "--repository-safe-output",
+        type=Path,
+        default=Path("docs/benchmarks/a2-1-retrieval-eval-v1.jsonl"),
     )
     return parser
 
@@ -215,6 +330,68 @@ def _run_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_retrieval_eval(args: argparse.Namespace) -> int:
+    """Build, validate, or edit the local A2.1 evaluation package."""
+    try:
+        if args.retrieval_action == "build":
+            manifest = materialize_retrieval_eval_set(
+                args.canonical_root,
+                args.corpus_manifest,
+                args.output,
+            )
+            print("retrieval_eval_status: built")
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
+            return 0
+        if args.retrieval_action == "validate":
+            report = validate_runtime_evaluation(
+                args.output,
+                args.canonical_root,
+                args.corpus_manifest,
+            )
+            print(
+                "retrieval_eval_status: valid" if report.valid else "retrieval_eval_status: invalid"
+            )
+            print(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return 0 if report.valid else 1
+        if args.retrieval_action == "refresh-candidates":
+            manifest = regenerate_candidate_review_pack(
+                args.canonical_root,
+                args.corpus_manifest,
+                args.output,
+            )
+            print("retrieval_eval_status: refreshed")
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
+            return 0
+        if args.retrieval_action == "review":
+            updated = apply_review_action(
+                args.output,
+                args.item_id,
+                args.action,
+                query=args.query,
+                query_type=args.query_type,
+            )
+            print("retrieval_eval_status: reviewed")
+            print(json.dumps(updated.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return 0
+        if args.retrieval_action == "finalize":
+            manifest = finalize_retrieval_eval_dataset(
+                args.output,
+                args.recommendations,
+                args.canonical_root,
+                args.corpus_manifest,
+                final_output_dir=args.final_output,
+                repository_safe_path=args.repository_safe_output,
+            )
+            print("retrieval_eval_status: finalized")
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
+            return 0
+    except (RetrievalEvalError, ValueError) as error:
+        print("retrieval_eval_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     parser = build_parser()
@@ -228,6 +405,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_chunk_document(args.document_id)
     if args.command == "benchmark-parsing":
         return _run_benchmark(args)
+    if args.command == "retrieval-eval":
+        return _run_retrieval_eval(args)
 
     parser.print_help()
     return 0
