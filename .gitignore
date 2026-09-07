@@ -20,6 +20,10 @@ dist/
 data/
 logs/
 
+# Local embedding benchmark models, vectors, rankings, and reports
+data/evaluation/a2-2/
+data/benchmarks/a2-2/
+
 # IDE settings
 .idea/
 .vscode/
