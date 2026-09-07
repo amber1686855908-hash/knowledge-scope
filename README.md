@@ -4,9 +4,9 @@ KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，当前提供�
 
 ## 当前状态
 
-Phase A1.5 已完成，目前提供：
+Phase A1.6 已完成，目前提供：
 
-- 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health 和 parse-document CLI；
+- 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health、parse-document 和 chunk-document CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
 - 基于 PostgreSQL、SQLAlchemy 2.x async 和 `asyncpg` 的知识库与文档元数据持久化；
 - 使用 Alembic 管理 `knowledge_bases` 和 `documents` 表结构；
@@ -20,10 +20,15 @@ Phase A1.5 已完成，目前提供：
 - 通过独立虚拟环境中的 MinerU `3.4.5` `pipeline` backend 解析单个已上传 PDF 的开发者 CLI：`uv run knowledgescope parse-document <document-id>`；MinerU 不作为 KnowledgeScope 的 Python 依赖，也不被 FastAPI 请求直接调用。
 - 解析器会读取 `*_content_list.json`，将页面、文本、标题、表格、公式、图片和可读列表转换为 `CanonicalDocument`，对页码、reading order、bbox、block ID 和图片/表格 artifact 引用执行校验，并报告跳过项、unsupported 项、`bbox_clamped`、表格降级统计和 warning 数量。
 - 规范化结果和 MinerU 原始输出分别保存在 `data/parsing/<document_id>/canonical.json`、`manifest.json` 和 `mineru/` 下；文件使用 staging 与原子提升，原始上传仍保存在 `data/documents/`。
+- 位于 `knowledge_scope.chunking` 的解析器无关 `Chunk`/`ChunkedDocument` Pydantic 模型，保存确定性文本、页面范围、来源 `source_block_ids`、`section_path`、`content_types` 和 opaque `asset_refs`；分块不增加数据库表，asset-only chunk 可以没有文本但必须保留资产引用。
+- 纯核心 API `chunk_document(document, config)` 按连续标题上下文、canonical block 和字符预算执行可重复的结构感知分块；默认 `target_chars=1200`、`max_chars=1600`、`min_chars=240`，字符预算不是 token 或检索质量承诺。
+- 开发者 CLI `uv run knowledgescope chunk-document <document-id>` 读取已有 `data/parsing/<document_id>/canonical.json`，将 chunk artifact 写入 `data/chunking/<document_id>/chunks.json` 和 `manifest.json`；当前不会在上传请求中自动分块，也不需要 MinerU、GPU 或 embedding 模型。
 
 Phase A1.5 已完成只读的全量解析基准：清单包含 257 个 PDF 条目、255 个唯一内容、1,580,533,246 字节和 3,833 个物理页，覆盖 9 个学科且没有未分类条目；2 个重复内容条目只解析代表文件，重复条目记录为 `skipped_duplicate`。首次运行中 244 个唯一内容成功、11 个因 MinerU 表格缺少 `table_body` 被严格 adapter 拒绝，成功率为 95.6863%；随后只重试这 11 个失败代表，最新结果为 255/255 个唯一内容均完成 `CanonicalDocument` 适配。100% 表示流水线完成，不是标注数据支持的解析准确率；其中 13 个表格条目因同时缺少结构化内容和可用资产而以 `table_missing_content` warning 降级。基准支持逐条 checkpoint、`--resume`、显式重试失败项和 `failures|all|none` 原始结果保留策略；运行产物位于被忽略的 `data/benchmarks/a1-5/`，汇总见 [A1.5 基准报告](docs/benchmarks/a1-5-corpus-parsing.md)。
 
-当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)。
+Phase A1.6 使用这批已有 canonical 结果做了 CPU-only 结构分块校验：255/255 个文档成功生成 7,524 个默认 chunk，46,504 个 source block 和 6,176 个 asset block 的覆盖率均为 100%，未重新运行 MinerU；画像、策略比较、硬化前后对比和学科统计见 [A1.6 分块基准报告](docs/benchmarks/a1-6-semantic-chunking.md)。
+
+当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
 ## 本地开发
 
@@ -81,6 +86,14 @@ Vite 默认使用 native file watcher。若开发机受到 inotify 或 file watc
 
 MinerU 运行时位于仓库之外。解析 CLI 使用 `KNOWLEDGE_SCOPE_MINERU_COMMAND` 指定外部 `mineru` 可执行文件，并使用 `KNOWLEDGE_SCOPE_MINERU_TIMEOUT_SECONDS` 设置超时；安装和模型配置见 [MinerU 本地集成](docs/integrations/mineru.md)。
 
+对已经存在的 `CanonicalDocument` artifact，可显式运行结构分块：
+
+```bash
+uv run knowledgescope chunk-document <document-id>
+```
+
+该命令不会重新运行 MinerU，也不会在上传时自动执行。
+
 A1.5 基准命令必须显式接收只读语料根目录，不会写入语料目录：
 
 ```bash
@@ -114,4 +127,4 @@ npm run build
 
 ## 后续方向
 
-后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并单独设计 chunking、vector retrieval、GraphRAG、multimodal retrieval、ChatBI 和 NL2SQL；当前版本不包含这些下游能力。
+后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并基于 A1.6 的结构分块基线评估 embedding、vector retrieval、GraphRAG、multimodal retrieval、ChatBI 和 NL2SQL；当前版本不包含这些下游能力。
