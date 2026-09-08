@@ -50,6 +50,12 @@ class Settings(BaseSettings):
         default="97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
         min_length=1,
     )
+    reranker_model_key: str = Field(default="qwen3-reranker-0.6b", min_length=1)
+    reranker_device: str = Field(default="cuda", min_length=1)
+    reranker_dtype: Literal["float16", "float32", "bfloat16"] = "float16"
+    reranker_batch_size: int = Field(default=4, ge=1)
+    reranker_max_seq_length: int = Field(default=512, ge=1)
+    reranker_model_revision: str | None = Field(default=None, min_length=1)
 
 
 def get_settings() -> Settings:

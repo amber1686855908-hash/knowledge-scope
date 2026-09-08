@@ -34,6 +34,8 @@ Phase A2.2 已完成本地 dense embedding 模型选型基准：在冻结的 A2.
 
 Phase A2.3 已完成 Qdrant 持久化 dense retrieval 基础：Qdrant 使用本地 Docker 服务和 `knowledgescope_chunks_v1` collection，向量维度为 1024、距离为 cosine；`Qwen/Qwen3-Embedding-0.6B` 使用 A2.2 固定 revision、`prompt_name=query`、L2 归一化和 512-token 配置。索引 payload 保留 `chunk_id`、`document_id`、可选的 `knowledge_base_id`、页码、`source_block_ids`、`section_path`、`content_types`、`asset_refs`、文本和 chunk/embedding 指纹，支持确定性 point ID、文档级安全重建、旧点清理、删除清理和失败时的补偿式回滚。PostgreSQL、文件系统与 Qdrant 之间不是原子事务；向量清理失败会明确报错，并可能需要后续人工修复。详见 [A2.3 Qdrant 集成报告](docs/benchmarks/a2-3-qdrant-integration.md)。
 
+Phase A2.4 已完成本地 reranker 基础：在 Qwen dense Top-K 之后，可通过 CLI 调用本地 Cross-Encoder 对候选 chunk 重新排序；当前基准比较 `Qwen/Qwen3-Reranker-0.6B`、`BAAI/bge-reranker-v2-m3` 和 `Alibaba-NLP/gte-multilingual-reranker-base`，并记录不同候选池大小下的质量、延迟、吞吐和 CUDA 显存。当前建议将 `BAAI/bge-reranker-v2-m3` 作为质量优先的 reranker 候选，将 GTE 保留为低延迟候选；结论只基于 108 条冻结评测集和单机离线运行，不代表生产模型定论。详见 [A2.4 本地 reranker 基准报告](docs/benchmarks/a2-4-local-reranker.md)。
+
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
 ## 本地开发
@@ -142,6 +144,22 @@ uv run knowledgescope qdrant index-corpus --canonical-root data/benchmarks/a1-5/
 uv run knowledgescope qdrant search "说明事理时应重点说明哪些内容?" --limit 5
 ```
 
+安装本地 reranker 基准所需依赖并运行完整比较：
+
+```bash
+uv sync --group reranker-benchmark
+uv run knowledgescope reranker-benchmark \
+  --split both \
+  --models qwen3-reranker-0.6b bge-reranker-v2-m3 gte-multilingual-reranker-base \
+  --candidate-sizes 10 20 50
+```
+
+对已经建立的 Qdrant dense 索引执行 dense + reranker 查询：
+
+```bash
+uv run knowledgescope rerank-search "说明事理时应重点说明哪些内容?" --candidate-limit 20 --limit 5
+```
+
 后端提供 `GET /api/v1/health/qdrant` readiness 检查和 `POST /api/v1/retrieval/search` 检索接口；当前没有前端检索页面。Qdrant、模型、向量和 benchmark 运行产物均不提交到仓库。
 
 ### 上传文件说明
@@ -169,4 +187,4 @@ npm run build
 
 ## 后续方向
 
-后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并在当前 dense retrieval 基础上评估 reranker、sparse/hybrid retrieval、GraphRAG、multimodal retrieval、ChatBI 和 NL2SQL；当前版本不包含这些后续能力。
+后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并在当前 dense retrieval 与 reranker 基础上评估 sparse/hybrid retrieval、GraphRAG、multimodal retrieval、ChatBI 和 NL2SQL；当前版本不包含这些后续能力。

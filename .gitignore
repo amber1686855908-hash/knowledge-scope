@@ -27,6 +27,10 @@ data/benchmarks/a2-2/
 # Local Qdrant/runtime vector artifacts
 data/evaluation/a2-3/
 data/benchmarks/a2-3/
+
+# Local reranker benchmark models, rankings, and measurements
+data/evaluation/a2-4/
+data/benchmarks/a2-4/
 .qdrant/
 
 # IDE settings

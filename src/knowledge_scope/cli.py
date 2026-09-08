@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from knowledge_scope import __version__
 from knowledge_scope.chunking.service import ChunkingError, chunk_document_by_id
+from knowledge_scope.evaluation import reranker_benchmark
 from knowledge_scope.evaluation.embedding_benchmark import (
     DEFAULT_CHUNK_INDEX,
     DEFAULT_DATASET,
@@ -49,6 +50,11 @@ from knowledge_scope.retrieval.indexing import (
     index_document_by_id,
 )
 from knowledge_scope.retrieval.qdrant import QdrantVectorStore, VectorStoreError
+from knowledge_scope.retrieval.reranking import (
+    RerankerError,
+    RerankingService,
+    create_local_reranker,
+)
 from knowledge_scope.retrieval.service import DenseRetrievalService, RetrievalError
 from knowledge_scope.shared import build_health_report, get_settings
 
@@ -256,6 +262,62 @@ def build_parser() -> argparse.ArgumentParser:
         default="float16",
     )
 
+    reranker_benchmark_parser = subparsers.add_parser(
+        "reranker-benchmark",
+        help="benchmark local rerankers on the frozen A2.1 set",
+    )
+    reranker_benchmark_parser.add_argument(
+        "--split",
+        choices=("dev", "test", "both"),
+        default="both",
+        help="run the same reranking protocol on the selected frozen split(s)",
+    )
+    reranker_benchmark_parser.add_argument(
+        "--models",
+        nargs="+",
+        choices=reranker_benchmark.RERANKER_MODEL_KEYS,
+        default=list(reranker_benchmark.RERANKER_MODEL_KEYS),
+    )
+    reranker_benchmark_parser.add_argument(
+        "--chunk-index",
+        type=Path,
+        default=reranker_benchmark.DEFAULT_CHUNK_INDEX,
+    )
+    reranker_benchmark_parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=reranker_benchmark.DEFAULT_DATASET,
+    )
+    reranker_benchmark_parser.add_argument(
+        "--materialized",
+        type=Path,
+        default=reranker_benchmark.DEFAULT_MATERIALIZED,
+    )
+    reranker_benchmark_parser.add_argument(
+        "--output",
+        type=Path,
+        default=reranker_benchmark.DEFAULT_OUTPUT,
+    )
+    reranker_benchmark_parser.add_argument("--batch-size", type=_positive_int, default=4)
+    reranker_benchmark_parser.add_argument("--max-seq-length", type=_positive_int, default=512)
+    reranker_benchmark_parser.add_argument(
+        "--dense-max-seq-length",
+        type=_positive_int,
+        default=512,
+    )
+    reranker_benchmark_parser.add_argument(
+        "--candidate-sizes",
+        nargs="+",
+        type=_positive_int,
+        default=reranker_benchmark.CANDIDATE_SIZES,
+    )
+    reranker_benchmark_parser.add_argument("--device", default="cuda")
+    reranker_benchmark_parser.add_argument(
+        "--dtype",
+        choices=("float16", "float32", "bfloat16"),
+        default="float16",
+    )
+
     qdrant = subparsers.add_parser(
         "qdrant",
         help="create, index, and search the local Qdrant chunk vector store",
@@ -286,6 +348,21 @@ def build_parser() -> argparse.ArgumentParser:
     qdrant_search.add_argument("--knowledge-base-id", type=UUID)
     qdrant_search.add_argument("--document-id", type=UUID)
     qdrant_search.add_argument("--limit", type=_positive_int, default=10)
+
+    rerank_search = subparsers.add_parser(
+        "rerank-search",
+        help="run dense Qdrant search followed by the configured local reranker",
+    )
+    rerank_search.add_argument("query")
+    rerank_search.add_argument(
+        "--model",
+        choices=reranker_benchmark.RERANKER_MODEL_KEYS,
+        help="local reranker model key; defaults to KNOWLEDGE_SCOPE_RERANKER_MODEL_KEY",
+    )
+    rerank_search.add_argument("--candidate-limit", type=_positive_int, default=20)
+    rerank_search.add_argument("--limit", type=_positive_int, default=10)
+    rerank_search.add_argument("--knowledge-base-id", type=UUID)
+    rerank_search.add_argument("--document-id", type=UUID)
     return parser
 
 
@@ -514,6 +591,103 @@ def _run_embedding_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_reranker_benchmark(args: argparse.Namespace) -> int:
+    """Run the read-only local reranker benchmark."""
+    try:
+        outcome = reranker_benchmark.run_reranker_benchmark(
+            split=args.split,
+            model_keys=args.models,
+            protocol=reranker_benchmark.RerankerBenchmarkProtocol(
+                batch_size=args.batch_size,
+                max_seq_length=args.max_seq_length,
+                dense_max_seq_length=args.dense_max_seq_length,
+                dtype=args.dtype,
+                device=args.device,
+                candidate_sizes=tuple(args.candidate_sizes),
+            ),
+            chunk_index_path=args.chunk_index,
+            dataset_path=args.dataset,
+            materialized_path=args.materialized,
+            output_dir=args.output,
+        )
+    except (reranker_benchmark.RerankerBenchmarkError, ValueError) as error:
+        print("reranker_benchmark_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("reranker_benchmark_status: interrupted", file=sys.stderr)
+        return 130
+
+    manifest = outcome["manifest"]
+    if not isinstance(manifest, dict):
+        print("reranker_benchmark_status: failed", file=sys.stderr)
+        print("error: benchmark manifest is invalid", file=sys.stderr)
+        return 1
+    status_counts = manifest.get("status_counts", {})
+    status = "complete" if status_counts.get("failed", 0) == 0 else "complete_with_failures"
+    print(f"reranker_benchmark_status: {status}")
+    print(f"output: {args.output}")
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _run_rerank_search(args: argparse.Namespace) -> int:
+    """Run the developer dense-then-rerank search workflow."""
+    try:
+        settings = get_settings()
+        store = QdrantVectorStore(settings)
+        try:
+            dense_result = DenseRetrievalService(
+                store,
+                QwenEmbeddingModel(settings),
+            ).search(
+                args.query,
+                limit=args.candidate_limit,
+                knowledge_base_id=args.knowledge_base_id,
+                document_id=args.document_id,
+            )
+            reranker = create_local_reranker(settings, model_key=args.model)
+            reranked = RerankingService(reranker).rerank(
+                args.query,
+                dense_result.items,
+                limit=args.limit,
+            )
+            print(
+                json.dumps(
+                    {
+                        "query": args.query,
+                        "dense_model": dense_result.model_id,
+                        "dense_limit": dense_result.limit,
+                        "reranker_model": reranker.model_id,
+                        "items": [
+                            {
+                                "dense_rank": item.dense_rank,
+                                "reranker_score": item.reranker_score,
+                                "chunk": item.chunk.model_dump(mode="json"),
+                            }
+                            for item in reranked
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+        finally:
+            store.close()
+    except (
+        EmbeddingModelError,
+        RerankerError,
+        RetrievalError,
+        ValidationError,
+        VectorStoreError,
+        ValueError,
+    ) as error:
+        print("rerank_search_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+
+
 def _run_qdrant(args: argparse.Namespace) -> int:
     """Run the small local Qdrant developer workflow."""
     try:
@@ -612,8 +786,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_retrieval_eval(args)
     if args.command == "embedding-benchmark":
         return _run_embedding_benchmark(args)
+    if args.command == "reranker-benchmark":
+        return _run_reranker_benchmark(args)
     if args.command == "qdrant":
         return _run_qdrant(args)
+    if args.command == "rerank-search":
+        return _run_rerank_search(args)
 
     parser.print_help()
     return 0
