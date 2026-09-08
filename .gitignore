@@ -24,6 +24,11 @@ logs/
 data/evaluation/a2-2/
 data/benchmarks/a2-2/
 
+# Local Qdrant/runtime vector artifacts
+data/evaluation/a2-3/
+data/benchmarks/a2-3/
+.qdrant/
+
 # IDE settings
 .idea/
 .vscode/

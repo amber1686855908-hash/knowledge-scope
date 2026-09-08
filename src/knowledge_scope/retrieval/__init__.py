@@ -1,1 +1,1 @@
-"""Package boundary reserved for retrieval capabilities added in a later phase."""
+"""Persistent dense retrieval infrastructure for KnowledgeScope."""

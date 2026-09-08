@@ -15,6 +15,7 @@ from knowledge_scope.knowledge_bases.models import (
     KNOWLEDGE_BASE_DESCRIPTION_MAX_LENGTH,
     KNOWLEDGE_BASE_NAME_MAX_LENGTH,
 )
+from knowledge_scope.retrieval.qdrant import QDRANT_VECTOR_DIMENSION
 
 
 class HealthResponse(BaseModel):
@@ -35,7 +36,7 @@ class MetaResponse(BaseModel):
 
     project_name: str
     version: str
-    phase: Literal["A1.4"]
+    phase: Literal["A2.3"]
     status: Literal["foundation"]
     config_status: Literal["ok"]
 
@@ -140,3 +141,58 @@ class DocumentListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class QdrantHealthResponse(BaseModel):
+    """Non-sensitive vector-store readiness information."""
+
+    status: Literal["ready", "available", "unavailable"]
+    collection_name: str
+    collection_exists: bool
+    vector_dimension: int | None = QDRANT_VECTOR_DIMENSION
+    error: str | None = None
+
+
+class RetrievalSearchRequest(BaseModel):
+    """Input for dense chunk retrieval."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1)
+    limit: int = Field(default=10, ge=1, le=100)
+    knowledge_base_id: UUID | None = None
+    document_id: UUID | None = None
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("query must contain non-whitespace characters")
+        return normalized
+
+
+class RetrievalSearchItem(BaseModel):
+    """Citation-ready metadata for one ranked chunk."""
+
+    point_id: UUID
+    score: float
+    chunk_id: str
+    document_id: UUID
+    knowledge_base_id: UUID | None
+    page_start: int
+    page_end: int
+    source_block_ids: list[str]
+    section_path: list[str]
+    content_types: list[str]
+    asset_refs: list[str]
+    text: str
+
+
+class RetrievalSearchResponse(BaseModel):
+    """Dense retrieval response without exposing internal vector values."""
+
+    query: str
+    model: str
+    collection: str
+    items: list[RetrievalSearchItem]

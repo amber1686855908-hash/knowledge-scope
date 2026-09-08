@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Request
 from httpx import AsyncClient, Response
 from sqlalchemy.exc import SQLAlchemyError
 
+from knowledge_scope.api.documents import _delete_document_vectors
 from knowledge_scope.documents.storage import storage_key_for_document
 
 VALID_PDF = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF\n"
@@ -330,6 +335,29 @@ async def test_delete_removes_parsing_and_chunking_artifacts_with_document(
     assert (
         await client.get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}")
     ).status_code == 404
+
+
+@pytest.mark.anyio
+async def test_qdrant_cleanup_runs_outside_the_event_loop_thread() -> None:
+    event_loop_thread = threading.get_ident()
+    cleanup_threads: list[int] = []
+
+    class ThreadRecordingVectorStore:
+        def delete_document(self, _document_id: UUID) -> int:
+            cleanup_threads.append(threading.get_ident())
+            return 0
+
+    request = cast(
+        Request,
+        SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(vector_store=ThreadRecordingVectorStore()))
+        ),
+    )
+
+    await _delete_document_vectors(request, uuid4())
+
+    assert cleanup_threads
+    assert cleanup_threads[0] != event_loop_thread
 
 
 @pytest.mark.anyio

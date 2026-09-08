@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -43,6 +44,7 @@ from knowledge_scope.documents.storage import (
     storage_key_for_document,
 )
 from knowledge_scope.parsing.service import PARSING_DIRECTORY_NAME
+from knowledge_scope.retrieval.qdrant import VectorStoreError
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import get_session
 
@@ -81,6 +83,17 @@ def _restore_deleted_resources(resources: tuple[TrashedResource | None, ...]) ->
         except OSError:
             restoration_failed = True
     return restoration_failed
+
+
+async def _delete_document_vectors(request: Request, document_id: UUID) -> None:
+    """Run synchronous Qdrant cleanup outside the FastAPI event loop."""
+    try:
+        await asyncio.to_thread(request.app.state.vector_store.delete_document, document_id)
+    except VectorStoreError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="文档已删除, 但向量清理失败",
+        ) from None
 
 
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -292,4 +305,5 @@ async def delete_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="文档已删除, 但文件清理失败",
         ) from None
+    await _delete_document_vectors(request, document.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

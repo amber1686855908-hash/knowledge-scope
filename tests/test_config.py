@@ -19,6 +19,9 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.database_url.endswith("/knowledgescope")
     assert settings.mineru_command == "mineru"
     assert settings.mineru_timeout_seconds == 1800
+    assert settings.qdrant_url == "http://127.0.0.1:6333"
+    assert settings.qdrant_collection_name == "knowledgescope_chunks_v1"
+    assert settings.embedding_model_revision
 
 
 def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -28,6 +31,8 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_MAX_UPLOAD_SIZE_BYTES", "1024")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_MINERU_COMMAND", "/opt/mineru/bin/mineru")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_MINERU_TIMEOUT_SECONDS", "600")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_QDRANT_URL", "http://localhost:6334")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_QDRANT_UPSERT_BATCH_SIZE", "64")
 
     settings = Settings(_env_file=None)
 
@@ -37,6 +42,8 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.max_upload_size_bytes == 1024
     assert settings.mineru_command == "/opt/mineru/bin/mineru"
     assert settings.mineru_timeout_seconds == 600
+    assert settings.qdrant_url == "http://localhost:6334"
+    assert settings.qdrant_upsert_batch_size == 64
 
 
 def test_settings_load_dotenv_file(tmp_path: Path) -> None:

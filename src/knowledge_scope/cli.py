@@ -7,6 +7,7 @@ import asyncio
 import json
 import sys
 from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 from uuid import UUID
 
@@ -41,6 +42,14 @@ from knowledge_scope.evaluation.retrieval_eval import (
     validate_runtime_evaluation,
 )
 from knowledge_scope.parsing.service import DocumentParseError, parse_document_by_id
+from knowledge_scope.retrieval.embedding import EmbeddingModelError, QwenEmbeddingModel
+from knowledge_scope.retrieval.indexing import (
+    IndexingError,
+    index_canonical_corpus,
+    index_document_by_id,
+)
+from knowledge_scope.retrieval.qdrant import QdrantVectorStore, VectorStoreError
+from knowledge_scope.retrieval.service import DenseRetrievalService, RetrievalError
 from knowledge_scope.shared import build_health_report, get_settings
 
 
@@ -246,6 +255,37 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("float16", "float32", "bfloat16"),
         default="float16",
     )
+
+    qdrant = subparsers.add_parser(
+        "qdrant",
+        help="create, index, and search the local Qdrant chunk vector store",
+    )
+    qdrant_actions = qdrant.add_subparsers(dest="qdrant_action", required=True)
+    qdrant_actions.add_parser("check", help="check Qdrant connectivity and collection schema")
+    qdrant_actions.add_parser("create", help="create or validate the versioned chunk collection")
+    qdrant_index_document = qdrant_actions.add_parser(
+        "index-document",
+        help="index an existing document chunk artifact with Qwen3-Embedding-0.6B",
+    )
+    qdrant_index_document.add_argument("document_id", type=UUID)
+    qdrant_index_corpus = qdrant_actions.add_parser(
+        "index-corpus",
+        help="index existing canonical artifacts without rerunning MinerU",
+    )
+    qdrant_index_corpus.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    qdrant_index_corpus.add_argument("--limit", type=_positive_int)
+    qdrant_search = qdrant_actions.add_parser(
+        "search",
+        help="run dense top-k search over indexed chunks",
+    )
+    qdrant_search.add_argument("query")
+    qdrant_search.add_argument("--knowledge-base-id", type=UUID)
+    qdrant_search.add_argument("--document-id", type=UUID)
+    qdrant_search.add_argument("--limit", type=_positive_int, default=10)
     return parser
 
 
@@ -474,6 +514,87 @@ def _run_embedding_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_qdrant(args: argparse.Namespace) -> int:
+    """Run the small local Qdrant developer workflow."""
+    try:
+        settings = get_settings()
+        store = QdrantVectorStore(settings)
+        try:
+            if args.qdrant_action == "check":
+                readiness = store.readiness()
+                print(json.dumps(readiness.model_dump(mode="json"), ensure_ascii=False, indent=2))
+                return 0 if readiness.status != "unavailable" else 1
+            if args.qdrant_action == "create":
+                readiness = store.ensure_collection()
+                print(json.dumps(readiness.model_dump(mode="json"), ensure_ascii=False, indent=2))
+                return 0
+            if args.qdrant_action == "index-document":
+                result = asyncio.run(
+                    index_document_by_id(
+                        args.document_id,
+                        settings,
+                        store=store,
+                        embedder=QwenEmbeddingModel(settings),
+                    )
+                )
+                print(json.dumps(asdict(result), ensure_ascii=False, indent=2, default=str))
+                return 0
+            if args.qdrant_action == "index-corpus":
+                results = index_canonical_corpus(
+                    args.canonical_root,
+                    settings,
+                    limit=args.limit,
+                    store=store,
+                    embedder=QwenEmbeddingModel(settings),
+                )
+                print(
+                    json.dumps(
+                        {"documents": len(results), "results": [asdict(item) for item in results]},
+                        ensure_ascii=False,
+                        indent=2,
+                        default=str,
+                    )
+                )
+                return 0
+            if args.qdrant_action == "search":
+                result = DenseRetrievalService(
+                    store,
+                    QwenEmbeddingModel(settings),
+                ).search(
+                    args.query,
+                    limit=args.limit,
+                    knowledge_base_id=args.knowledge_base_id,
+                    document_id=args.document_id,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "query": result.query,
+                            "model": result.model_id,
+                            "collection": result.collection_name,
+                            "items": [item.model_dump(mode="json") for item in result.items],
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                return 0
+        finally:
+            store.close()
+    except (
+        EmbeddingModelError,
+        IndexingError,
+        RetrievalError,
+        ValidationError,
+        VectorStoreError,
+        ValueError,
+    ) as error:
+        print("qdrant_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     parser = build_parser()
@@ -491,6 +612,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_retrieval_eval(args)
     if args.command == "embedding-benchmark":
         return _run_embedding_benchmark(args)
+    if args.command == "qdrant":
+        return _run_qdrant(args)
 
     parser.print_help()
     return 0

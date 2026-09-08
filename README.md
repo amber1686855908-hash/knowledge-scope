@@ -4,7 +4,7 @@ KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，当前提供�
 
 ## 当前状态
 
-Phase A1.6 已完成，目前提供：
+Phase A2.3 已完成，目前提供：
 
 - 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health、parse-document 和 chunk-document CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
@@ -28,7 +28,11 @@ Phase A1.5 已完成只读的全量解析基准：清单包含 257 个 PDF 条�
 
 Phase A1.6 使用这批已有 canonical 结果做了 CPU-only 结构分块校验：255/255 个文档成功生成 7,524 个默认 chunk，46,504 个 source block 和 6,176 个 asset block 的覆盖率均为 100%，未重新运行 MinerU；画像、策略比较、硬化前后对比和学科统计见 [A1.6 分块基准报告](docs/benchmarks/a1-6-semantic-chunking.md)。
 
-Phase A2.1 已完成基于 canonical `document_id`、页码和 `source_block_ids` 的文本检索评估集：人工审核后保留 108 条 `verified`、54 条 `rejected`，覆盖 9 个学科且每科 12 条；最终 `retrieval-eval-v1` 划分为 72 条 dev 和 36 条 test，每科分别为 8/4。教材问题只保存在 `query_source` 审计字段，gold `evidence` 仅使用答案性正文、公式或文本表格，并通过 query 泄漏、evidence fingerprint、chunk lineage、重复 evidence/chunk 分组和 dev/test 分组校验；编辑 query 后会重新生成 deterministic item ID。运行时产物位于被忽略的 `data/evaluation/a2-1/`，仓库安全的最终标注见 [A2.1 retrieval-eval-v1](docs/benchmarks/a2-1-retrieval-eval-v1.jsonl)；详见 [A2.1 检索评估集报告](docs/benchmarks/a2-1-retrieval-eval-set.md)。当前不包含 embedding、真实检索分数或任何下游 RAG 能力。
+Phase A2.1 已完成基于 canonical `document_id`、页码和 `source_block_ids` 的文本检索评估集：人工审核后保留 108 条 `verified`、54 条 `rejected`，覆盖 9 个学科且每科 12 条；最终 `retrieval-eval-v1` 划分为 72 条 dev 和 36 条 test，每科分别为 8/4。教材问题只保存在 `query_source` 审计字段，gold `evidence` 仅使用答案性正文、公式或文本表格，并通过 query 泄漏、evidence fingerprint、chunk lineage、重复 evidence/chunk 分组和 dev/test 分组校验；编辑 query 后会重新生成 deterministic item ID。运行时产物位于被忽略的 `data/evaluation/a2-1/`，仓库安全的最终标注见 [A2.1 retrieval-eval-v1](docs/benchmarks/a2-1-retrieval-eval-v1.jsonl)；详见 [A2.1 检索评估集报告](docs/benchmarks/a2-1-retrieval-eval-set.md)。A2.1 评测集本身不包含 embedding、真实检索分数或任何下游 RAG 生成能力。
+
+Phase A2.2 已完成本地 dense embedding 模型选型基准：在冻结的 A2.1 dev/test 集上比较 `Qwen/Qwen3-Embedding-0.6B`、`Qwen/Qwen3-Embedding-4B`、`BAAI/bge-m3` 和 `intfloat/multilingual-e5-large-instruct`，记录 Hit@K、MRR、EvidenceRecall、编码吞吐、查询延迟和 CUDA 显存。当前建议将 `Qwen/Qwen3-Embedding-0.6B` 作为默认工程基线，将 4B 保留为质量优先候选；该结论受 `512-token common profile` 截断限制约束，详见 [A2.2 模型选型报告](docs/benchmarks/a2-2-embedding-model-selection.md)。
+
+Phase A2.3 已完成 Qdrant 持久化 dense retrieval 基础：Qdrant 使用本地 Docker 服务和 `knowledgescope_chunks_v1` collection，向量维度为 1024、距离为 cosine；`Qwen/Qwen3-Embedding-0.6B` 使用 A2.2 固定 revision、`prompt_name=query`、L2 归一化和 512-token 配置。索引 payload 保留 `chunk_id`、`document_id`、可选的 `knowledge_base_id`、页码、`source_block_ids`、`section_path`、`content_types`、`asset_refs`、文本和 chunk/embedding 指纹，支持确定性 point ID、文档级安全重建、旧点清理、删除清理和失败时的补偿式回滚。PostgreSQL、文件系统与 Qdrant 之间不是原子事务；向量清理失败会明确报错，并可能需要后续人工修复。详见 [A2.3 Qdrant 集成报告](docs/benchmarks/a2-3-qdrant-integration.md)。
 
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
@@ -50,10 +54,10 @@ npm install
 ### 启动 PostgreSQL
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres qdrant
 ```
 
-Compose 默认将 PostgreSQL 映射到 `127.0.0.1:5433`，本地开发凭据和数据库名定义在 [compose.yaml](compose.yaml) 中。复制 [.env.example](.env.example) 为 `.env` 后，可通过 `KNOWLEDGE_SCOPE_POSTGRES_PORT` 修改宿主机端口，并同步更新 `KNOWLEDGE_SCOPE_DATABASE_URL`；不要在 `.env` 中提交 secrets。
+Compose 默认将 PostgreSQL 映射到 `127.0.0.1:5433`、Qdrant 映射到 `127.0.0.1:6333`，本地开发凭据、数据库名和 Qdrant collection 配置定义在 [compose.yaml](compose.yaml) 与 [.env.example](.env.example) 中。复制 [.env.example](.env.example) 为 `.env` 后，可通过 `KNOWLEDGE_SCOPE_POSTGRES_PORT` 和 `KNOWLEDGE_SCOPE_QDRANT_URL` 修改连接配置；不要在 `.env` 中提交 secrets。Qdrant 数据保存在 Docker named volume，不会写入 Git。
 
 ### 执行数据库迁移
 
@@ -104,6 +108,42 @@ uv run knowledgescope benchmark-parsing --corpus /path/to/read-only-corpus
 
 可使用 `--resume`、`--retry-failed`、`--raw-retention failures|all|none`、`--subject` 和 `--limit` 控制可恢复运行与 smoke test；默认运行工作区为被忽略的 `data/benchmarks/a1-5/`。
 
+Qwen embedding 运行需要本地安装 embedding benchmark 依赖：
+
+```bash
+uv sync --group embedding-benchmark
+```
+
+默认 embedding device 为 CUDA；没有可用 GPU 时，可在 `.env` 中设置
+`KNOWLEDGE_SCOPE_EMBEDDING_DEVICE=cpu` 和 `KNOWLEDGE_SCOPE_EMBEDDING_DTYPE=float32`。
+
+检查或创建 Qdrant collection：
+
+```bash
+uv run knowledgescope qdrant check
+uv run knowledgescope qdrant create
+```
+
+对已经存在的 `data/chunking/<document_id>/chunks.json` 执行单文档索引：
+
+```bash
+uv run knowledgescope qdrant index-document <document-id>
+```
+
+也可以直接使用 A1.5 的 canonical artifacts，按 A1.6 默认策略生成内存中的 chunk 并索引若干文档；该命令不会重新运行 MinerU：
+
+```bash
+uv run knowledgescope qdrant index-corpus --canonical-root data/benchmarks/a1-5/canonical --limit 3
+```
+
+执行 dense Top-K 查询：
+
+```bash
+uv run knowledgescope qdrant search "说明事理时应重点说明哪些内容?" --limit 5
+```
+
+后端提供 `GET /api/v1/health/qdrant` readiness 检查和 `POST /api/v1/retrieval/search` 检索接口；当前没有前端检索页面。Qdrant、模型、向量和 benchmark 运行产物均不提交到仓库。
+
 ### 上传文件说明
 
 当前上传接口只接受真实 PDF：服务端会检查文件名、`.pdf` 扩展名、文件头和大小，并以流式方式计算 SHA-256 后写入本地文件。上传文件不会被加入 Git；`.env`、`data/`、`node_modules/` 和前端构建产物也不会被提交。
@@ -129,4 +169,4 @@ npm run build
 
 ## 后续方向
 
-后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并基于 A1.6 的结构分块基线评估 embedding、vector retrieval、GraphRAG、multimodal retrieval、ChatBI 和 NL2SQL；当前版本不包含这些下游能力。
+后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并在当前 dense retrieval 基础上评估 reranker、sparse/hybrid retrieval、GraphRAG、multimodal retrieval、ChatBI 和 NL2SQL；当前版本不包含这些后续能力。
