@@ -21,11 +21,31 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from knowledge_scope.api.app import create_app
+from knowledge_scope.retrieval.qdrant import QdrantReadiness
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import get_session
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOCAL_DATABASE_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+class _TestVectorStore:
+    """Keep database/API tests independent from a running Qdrant service."""
+
+    collection_name = "test_chunks"
+
+    def readiness(self) -> QdrantReadiness:
+        return QdrantReadiness(
+            status="available",
+            collection_name=self.collection_name,
+            collection_exists=False,
+        )
+
+    def delete_document(self, _document_id: object) -> int:
+        return 0
+
+    def close(self) -> None:
+        return None
 
 
 @pytest.fixture
@@ -125,7 +145,11 @@ async def _test_client(
         data_dir=data_dir,
         max_upload_size_bytes=max_upload_size_bytes,
     )
-    application = create_app(settings, database_engine=postgres_test_engine)
+    application = create_app(
+        settings,
+        database_engine=postgres_test_engine,
+        vector_store=_TestVectorStore(),
+    )
 
     async with postgres_test_engine.connect() as connection:
         transaction = await connection.begin()
