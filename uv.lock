@@ -493,6 +493,12 @@ embedding-benchmark = [
     { name = "torch" },
     { name = "transformers" },
 ]
+reranker-benchmark = [
+    { name = "accelerate" },
+    { name = "sentence-transformers" },
+    { name = "torch" },
+    { name = "transformers" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -514,6 +520,12 @@ dev = [
     { name = "ruff", specifier = ">=0.11,<1.0" },
 ]
 embedding-benchmark = [
+    { name = "accelerate", specifier = ">=1.2,<2.0" },
+    { name = "sentence-transformers", specifier = ">=4.0,<6.0" },
+    { name = "torch", specifier = ">=2.5,<3.0" },
+    { name = "transformers", specifier = ">=4.51,<5.0" },
+]
+reranker-benchmark = [
     { name = "accelerate", specifier = ">=1.2,<2.0" },
     { name = "sentence-transformers", specifier = ">=4.0,<6.0" },
     { name = "torch", specifier = ">=2.5,<3.0" },

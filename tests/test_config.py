@@ -22,6 +22,11 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.qdrant_url == "http://127.0.0.1:6333"
     assert settings.qdrant_collection_name == "knowledgescope_chunks_v1"
     assert settings.embedding_model_revision
+    assert settings.reranker_model_key == "qwen3-reranker-0.6b"
+    assert settings.reranker_device == "cuda"
+    assert settings.reranker_dtype == "float16"
+    assert settings.reranker_batch_size == 4
+    assert settings.reranker_max_seq_length == 512
 
 
 def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,6 +38,11 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_MINERU_TIMEOUT_SECONDS", "600")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_QDRANT_URL", "http://localhost:6334")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_QDRANT_UPSERT_BATCH_SIZE", "64")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_MODEL_KEY", "bge-reranker-v2-m3")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_DEVICE", "cpu")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_DTYPE", "float32")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_BATCH_SIZE", "2")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_MAX_SEQ_LENGTH", "256")
 
     settings = Settings(_env_file=None)
 
@@ -44,6 +54,11 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.mineru_timeout_seconds == 600
     assert settings.qdrant_url == "http://localhost:6334"
     assert settings.qdrant_upsert_batch_size == 64
+    assert settings.reranker_model_key == "bge-reranker-v2-m3"
+    assert settings.reranker_device == "cpu"
+    assert settings.reranker_dtype == "float32"
+    assert settings.reranker_batch_size == 2
+    assert settings.reranker_max_seq_length == 256
 
 
 def test_settings_load_dotenv_file(tmp_path: Path) -> None:
