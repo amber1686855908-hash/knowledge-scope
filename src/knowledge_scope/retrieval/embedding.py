@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
+from threading import Lock
 from typing import Any
 
 from knowledge_scope.shared.config import Settings
@@ -37,6 +38,7 @@ class QwenEmbeddingModel:
         self.settings = settings
         self._model = model
         self._torch: Any | None = None
+        self._inference_lock = Lock()
 
     @property
     def model_id(self) -> str:
@@ -91,26 +93,29 @@ class QwenEmbeddingModel:
     def _encode(self, texts: Sequence[str], *, query: bool) -> list[list[float]]:
         if not texts:
             return []
-        model = self._load()
-        kwargs: dict[str, Any] = {
-            "batch_size": self.settings.embedding_batch_size,
-            "convert_to_numpy": True,
-            "normalize_embeddings": True,
-            "show_progress_bar": False,
-        }
-        if query:
-            kwargs["prompt_name"] = "query"
-        try:
-            encoded = model.encode(list(texts), **kwargs)
-        except Exception as error:
-            operation = "query" if query else "document"
-            raise EmbeddingModelError(f"Qwen {operation} encoding failed") from error
-        vectors = encoded.tolist()
-        if len(vectors) != len(texts) or any(
-            len(vector) != QDRANT_VECTOR_DIMENSION for vector in vectors
-        ):
-            raise EmbeddingModelError(f"Qwen embedding dimension must be {QDRANT_VECTOR_DIMENSION}")
-        return [[float(value) for value in vector] for vector in vectors]
+        with self._inference_lock:
+            model = self._load()
+            kwargs: dict[str, Any] = {
+                "batch_size": self.settings.embedding_batch_size,
+                "convert_to_numpy": True,
+                "normalize_embeddings": True,
+                "show_progress_bar": False,
+            }
+            if query:
+                kwargs["prompt_name"] = "query"
+            try:
+                encoded = model.encode(list(texts), **kwargs)
+            except Exception as error:
+                operation = "query" if query else "document"
+                raise EmbeddingModelError(f"Qwen {operation} encoding failed") from error
+            vectors = encoded.tolist()
+            if len(vectors) != len(texts) or any(
+                len(vector) != QDRANT_VECTOR_DIMENSION for vector in vectors
+            ):
+                raise EmbeddingModelError(
+                    f"Qwen embedding dimension must be {QDRANT_VECTOR_DIMENSION}"
+                )
+            return [[float(value) for value in vector] for vector in vectors]
 
     def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
         """Encode document chunks without the query-only prompt."""

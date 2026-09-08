@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Literal, Protocol
 
 from knowledge_scope.shared.config import Settings
@@ -130,6 +131,7 @@ class LocalCrossEncoderReranker:
         self.revision = revision
         self._model = model
         self._torch: Any | None = None
+        self._inference_lock = Lock()
 
     @property
     def model_id(self) -> str:
@@ -192,32 +194,33 @@ class LocalCrossEncoderReranker:
             raise ValueError("query must not be blank")
         if not passages:
             return []
-        model = self.load()
-        pairs = [(query, passage) for passage in passages]
-        try:
-            scores = model.predict(
-                pairs,
-                batch_size=self.batch_size,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-            )
-        except Exception as error:
-            raise RerankerError(f"local reranker scoring failed: {self.model_id}") from error
-        if hasattr(scores, "detach"):
-            values: Any = scores.detach().cpu().reshape(-1).tolist()
-        elif hasattr(scores, "reshape"):
-            values = scores.reshape(-1).tolist()
-        else:
-            values = scores if isinstance(scores, (list, tuple)) else [scores]
-        try:
-            result = [float(value) for value in values]
-        except (TypeError, ValueError) as error:
-            raise RerankerError("local reranker returned non-numeric scores") from error
-        if len(result) != len(passages):
-            raise RerankerError("local reranker score count does not match passage count")
-        if any(not math.isfinite(value) for value in result):
-            raise RerankerError("local reranker returned a non-finite score")
-        return result
+        with self._inference_lock:
+            model = self.load()
+            pairs = [(query, passage) for passage in passages]
+            try:
+                scores = model.predict(
+                    pairs,
+                    batch_size=self.batch_size,
+                    show_progress_bar=False,
+                    convert_to_numpy=True,
+                )
+            except Exception as error:
+                raise RerankerError(f"local reranker scoring failed: {self.model_id}") from error
+            if hasattr(scores, "detach"):
+                values: Any = scores.detach().cpu().reshape(-1).tolist()
+            elif hasattr(scores, "reshape"):
+                values = scores.reshape(-1).tolist()
+            else:
+                values = scores if isinstance(scores, (list, tuple)) else [scores]
+            try:
+                result = [float(value) for value in values]
+            except (TypeError, ValueError) as error:
+                raise RerankerError("local reranker returned non-numeric scores") from error
+            if len(result) != len(passages):
+                raise RerankerError("local reranker score count does not match passage count")
+            if any(not math.isfinite(value) for value in result):
+                raise RerankerError("local reranker returned a non-finite score")
+            return result
 
 
 def _passage_text(chunk: RetrievedChunk) -> str:

@@ -38,7 +38,9 @@ Phase A2.4 已完成本地 reranker 基础：在 Qwen dense Top-K 之后，可�
 
 Phase A2.5 已完成冻结 A2.1 评测集上的检索阶段基准，比较了同一 `Qwen/Qwen3-Embedding-0.6B` 的 exact dense、Qdrant dense，以及 Qdrant Top-10 + `BAAI/bge-reranker-v2-m3`；结果、Qdrant 排名一致性、延迟和 test 坏例分析见 [A2.5 检索系统基准报告](docs/benchmarks/a2-5-retrieval-system-benchmark.md)。该基准不增加 sparse/hybrid retrieval、GraphRAG、LLM 生成或前端检索功能；Qdrant 当前 collection 规模下走 full scan，不能代表大规模 ANN 性能。
 
-Phase A2.6 已完成 provider-independent 的 async LLM gateway 基础：`knowledge_scope.llm` 提供统一的 system/user 消息、模型与生成参数、普通 completion、streaming event 和规范化结果；首个真实适配器使用 OpenAI-compatible 的 DeepSeek 配置。每次已执行的逻辑调用都会尝试记录到 `llm_usage_records`，保存 provider、model、task type、token、延迟、成功状态、错误类别和可选的配置驱动成本估算；API key 不写入日志或记录。使用 `uv run knowledgescope llm-smoke-test` 可对已配置的 provider 执行一次开发者 smoke test；当前不包含 RAG、GraphRAG、Agent 或聊天页面。详见 [A2.6 LLM gateway 说明](docs/architecture/llm-gateway.md)。
+Phase A2.6 已完成 provider-independent 的 async LLM gateway 基础：`knowledge_scope.llm` 提供统一的 system/user 消息、模型与生成参数、普通 completion、streaming event 和规范化结果；首个真实适配器使用 OpenAI-compatible 的 DeepSeek 配置。每次已执行的逻辑调用都会尝试记录到 `llm_usage_records`，保存 provider、model、task type、token、延迟、成功状态、错误类别和可选的配置驱动成本估算；API key 不写入日志或记录。使用 `uv run knowledgescope llm-smoke-test` 可对已配置的 provider 执行一次开发者 smoke test；当前不包含 GraphRAG、Agent 或聊天页面。详见 [A2.6 LLM gateway 说明](docs/architecture/llm-gateway.md)。
+
+Phase A2.7 已完成首个文本 RAG QA 编排：`POST /api/v1/rag/query` 复用 `Qwen/Qwen3-Embedding-0.6B`、Qdrant dense Top-10、显式 `BAAI/bge-reranker-v2-m3` 和 A2.6 LLM Gateway，通过 SSE 返回增量回答、应用生成的 citation metadata 及最终状态/usage。上下文按 reranker 顺序选择，抑制同一 lineage 下的精确重复文本，并受 `KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS` 字符预算限制；该预算只约束 chunk 文本字符数，不是 tokenizer-aware 的精确 LLM token context budget。无可用文本证据时受控返回证据不足，不调用 LLM；本地模型推理在共享 adapter 上串行化，当前不承诺 GPU 并发吞吐。请求 query 限制为 4,000 字符，当前接口适用于受信任的本地/内网开发环境，不应直接暴露公网。当前没有前端聊天页面、答案质量 benchmark 或后续 GraphRAG/Agent 能力；详见 [A2.7 RAG QA 说明](docs/architecture/rag-qa.md)。
 
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
@@ -178,7 +180,13 @@ uv run knowledgescope llm-smoke-test --task-type evaluation
 
 该命令会将调用用量写入 PostgreSQL 的 `llm_usage_records`；未配置 `KNOWLEDGE_SCOPE_LLM_API_KEY` 时会受控失败。测试套件使用 mock/fake，不需要网络、API key 或付费模型。
 
-后端提供 `GET /api/v1/health/qdrant` readiness 检查和 `POST /api/v1/retrieval/search` 检索接口；当前没有前端检索页面。Qdrant、模型、向量和 benchmark 运行产物均不提交到仓库。
+运行 A2.7 RAG endpoint 还需要安装已有的本地 embedding/reranker 依赖：
+
+```bash
+uv sync --group embedding-benchmark --group reranker-benchmark
+```
+
+后端提供 `GET /api/v1/health/qdrant` readiness 检查、`POST /api/v1/retrieval/search` dense 检索接口和 `POST /api/v1/rag/query` SSE RAG QA 接口；当前没有前端检索或聊天页面。Qdrant、模型、向量和 benchmark 运行产物均不提交到仓库。
 
 ### 上传文件说明
 

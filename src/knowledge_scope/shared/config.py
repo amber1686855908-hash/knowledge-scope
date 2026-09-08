@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=0, ge=0, le=2)
     llm_input_cost_per_1k_tokens: Decimal | None = Field(default=None, ge=0)
     llm_output_cost_per_1k_tokens: Decimal | None = Field(default=None, ge=0)
+    rag_candidate_limit: int = Field(default=10, ge=1, le=100)
+    rag_rerank_limit: int = Field(default=5, ge=1, le=100)
+    rag_context_budget_chars: int = Field(default=6_000, ge=1)
+    rag_max_tokens: int = Field(default=512, ge=1)
 
 
 def get_settings() -> Settings:

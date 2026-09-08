@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import math
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+from time import sleep
 from uuid import uuid4
 
 import pytest
@@ -37,6 +40,24 @@ class _FakeReranker:
 
     def score_pairs(self, _query: str, _passages: list[str]) -> list[float]:
         return self.scores
+
+
+class _ConcurrentCrossEncoder:
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self.active = 0
+        self.max_active = 0
+
+    def predict(self, inputs: list[tuple[str, str]], **_kwargs: object) -> list[float]:
+        with self._lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            sleep(0.01)
+            return [1.0] * len(inputs)
+        finally:
+            with self._lock:
+                self.active -= 1
 
 
 def _chunk(chunk_id: str, text: str = "答案正文") -> RetrievedChunk:
@@ -101,6 +122,20 @@ def test_local_cross_encoder_rejects_invalid_scores() -> None:
     )
     with pytest.raises(RerankerError, match="non-finite"):
         non_finite.score_pairs("查询", ["正文一"])
+
+
+def test_local_cross_encoder_serializes_shared_model_inference() -> None:
+    model = _ConcurrentCrossEncoder()
+    reranker = LocalCrossEncoderReranker(
+        RERANKER_MODEL_SPECS["bge-reranker-v2-m3"],
+        model=model,
+    )
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(lambda _: reranker.score_pairs("查询", ["正文"]), range(4)))
+
+    assert results == [[1.0], [1.0], [1.0], [1.0]]
+    assert model.max_active == 1
 
 
 def test_reranking_service_sorts_by_score_and_uses_dense_rank_as_tiebreaker() -> None:
