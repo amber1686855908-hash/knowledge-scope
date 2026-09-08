@@ -11,28 +11,62 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from knowledge_scope import __version__
+from knowledge_scope.llm.gateway import LLMGateway
+from knowledge_scope.llm.providers import create_llm_provider
+from knowledge_scope.llm.usage import DatabaseUsageRecorder
+from knowledge_scope.rag.service import RAGService
 from knowledge_scope.retrieval.embedding import QwenEmbeddingModel
 from knowledge_scope.retrieval.qdrant import QdrantVectorStore
+from knowledge_scope.retrieval.reranking import RerankingService, create_local_reranker
+from knowledge_scope.retrieval.service import DenseRetrievalService
 from knowledge_scope.shared import build_health_report, get_settings
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
 
 from .documents import router as documents_router
 from .knowledge_bases import router as knowledge_bases_router
+from .rag import router as rag_router
 from .retrieval import router as retrieval_router
 from .schemas import HealthResponse, MetaResponse, QdrantHealthResponse
 
 API_PREFIX: Final = "/api/v1"
-CURRENT_PHASE: Final = "A2.3"
+CURRENT_PHASE: Final = "A2.7"
 PROJECT_STATUS: Final = "foundation"
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Dispose application-owned database and vector-store clients on shutdown."""
-    yield
-    await application.state.db_engine.dispose()
-    application.state.vector_store.close()
+    """Initialize the default RAG graph and dispose owned clients on shutdown."""
+    provider = None
+    try:
+        if application.state.rag_service is None:
+            settings: Settings = application.state.settings
+            provider = create_llm_provider(settings)
+            application.state.llm_provider = provider
+            gateway = LLMGateway(
+                provider,
+                DatabaseUsageRecorder(application.state.db_session_factory),
+                settings,
+            )
+            retrieval = DenseRetrievalService(
+                application.state.vector_store,
+                application.state.embedding_model,
+            )
+            reranking = RerankingService(
+                create_local_reranker(settings, model_key="bge-reranker-v2-m3")
+            )
+            application.state.rag_service = RAGService(
+                retrieval,
+                reranking,
+                gateway,
+                settings,
+            )
+        yield
+    finally:
+        if provider is not None:
+            await provider.aclose()
+        await application.state.db_engine.dispose()
+        application.state.vector_store.close()
 
 
 def create_app(
@@ -41,6 +75,7 @@ def create_app(
     database_engine: AsyncEngine | None = None,
     vector_store: QdrantVectorStore | None = None,
     embedding_model: QwenEmbeddingModel | None = None,
+    rag_service: RAGService | None = None,
 ) -> FastAPI:
     """Create the API application with validated runtime settings."""
     runtime_settings = settings if settings is not None else get_settings()
@@ -57,6 +92,8 @@ def create_app(
     application.state.settings = runtime_settings
     application.state.vector_store = vector_store or QdrantVectorStore(runtime_settings)
     application.state.embedding_model = embedding_model or QwenEmbeddingModel(runtime_settings)
+    application.state.rag_service = rag_service
+    application.state.llm_provider = None
     application.add_middleware(
         CORSMiddleware,
         allow_origins=runtime_settings.cors_origins,
@@ -97,6 +134,7 @@ def create_app(
     application.include_router(knowledge_bases_router, prefix=API_PREFIX)
     application.include_router(documents_router, prefix=API_PREFIX)
     application.include_router(retrieval_router, prefix=API_PREFIX)
+    application.include_router(rag_router, prefix=API_PREFIX)
     return application
 
 

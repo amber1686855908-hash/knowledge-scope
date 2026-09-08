@@ -1,6 +1,6 @@
 # A2.6 LLM Gateway
 
-KnowledgeScope 当前提供一个小型、provider-independent 的 async LLM gateway，为后续 RAG、GraphRAG、Agent 和报告生成保留统一调用边界；这些业务能力尚未实现。
+KnowledgeScope 当前提供一个小型、provider-independent 的 async LLM gateway，为 A2.7 文本 RAG QA 以及后续 GraphRAG、Agent 和报告生成保留统一调用边界；后续业务能力尚未实现。
 
 ## 当前实现
 
@@ -32,4 +32,4 @@ uv run alembic upgrade head
 uv run knowledgescope llm-smoke-test --task-type evaluation
 ```
 
-正常单元测试通过 mock HTTP transport、fake provider 和测试数据库验证，不会发起网络请求。当前没有 LLM API endpoint、RAG prompt 编排、对话历史、流式 WebSocket 或前端聊天 UI。
+正常单元测试通过 mock HTTP transport、fake provider 和测试数据库验证，不会发起网络请求。A2.7 在此 gateway 之上增加了独立的 RAG prompt 编排和 `POST /api/v1/rag/query` SSE endpoint；当前仍没有对话历史、流式 WebSocket 或前端聊天 UI。

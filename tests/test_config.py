@@ -36,6 +36,10 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.llm_max_retries == 0
     assert settings.llm_input_cost_per_1k_tokens is None
     assert settings.llm_output_cost_per_1k_tokens is None
+    assert settings.rag_candidate_limit == 10
+    assert settings.rag_rerank_limit == 5
+    assert settings.rag_context_budget_chars == 6_000
+    assert settings.rag_max_tokens == 512
 
 
 def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -60,6 +64,10 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_MAX_RETRIES", "2")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_INPUT_COST_PER_1K_TOKENS", "0.12")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_OUTPUT_COST_PER_1K_TOKENS", "0.34")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_CANDIDATE_LIMIT", "8")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_RERANK_LIMIT", "4")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS", "4000")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_MAX_TOKENS", "256")
 
     settings = Settings(_env_file=None)
 
@@ -84,6 +92,10 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.llm_max_retries == 2
     assert settings.llm_input_cost_per_1k_tokens == Decimal("0.12")
     assert settings.llm_output_cost_per_1k_tokens == Decimal("0.34")
+    assert settings.rag_candidate_limit == 8
+    assert settings.rag_rerank_limit == 4
+    assert settings.rag_context_budget_chars == 4000
+    assert settings.rag_max_tokens == 256
 
 
 def test_settings_load_dotenv_file(tmp_path: Path) -> None:
