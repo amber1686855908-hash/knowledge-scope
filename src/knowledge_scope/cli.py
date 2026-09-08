@@ -58,6 +58,10 @@ from knowledge_scope.evaluation.retrieval_system_benchmark import (
     RetrievalSystemBenchmarkError,
     run_retrieval_system_benchmark,
 )
+from knowledge_scope.llm import LLMGateway, LLMMessage, LLMRequest, LLMResult, create_llm_provider
+from knowledge_scope.llm.errors import LLMError
+from knowledge_scope.llm.schemas import LLM_TASK_TYPES
+from knowledge_scope.llm.usage import DatabaseUsageRecorder
 from knowledge_scope.parsing.service import DocumentParseError, parse_document_by_id
 from knowledge_scope.retrieval.embedding import EmbeddingModelError, QwenEmbeddingModel
 from knowledge_scope.retrieval.indexing import (
@@ -73,6 +77,7 @@ from knowledge_scope.retrieval.reranking import (
 )
 from knowledge_scope.retrieval.service import DenseRetrievalService, RetrievalError
 from knowledge_scope.shared import build_health_report, get_settings
+from knowledge_scope.shared.database import create_database_engine, create_session_factory
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -89,6 +94,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("health", help="report project, runtime, and configuration health")
+    llm_smoke_test = subparsers.add_parser(
+        "llm-smoke-test",
+        help="call the configured OpenAI-compatible LLM provider once",
+    )
+    llm_smoke_test.add_argument(
+        "prompt",
+        nargs="?",
+        default="Reply with exactly: KnowledgeScope gateway ok.",
+    )
+    llm_smoke_test.add_argument("--system")
+    llm_smoke_test.add_argument("--model")
+    llm_smoke_test.add_argument("--temperature", type=float, default=0.0)
+    llm_smoke_test.add_argument("--max-tokens", type=_positive_int, default=64)
+    llm_smoke_test.add_argument(
+        "--task-type",
+        choices=LLM_TASK_TYPES,
+        default="evaluation",
+    )
     parse_document = subparsers.add_parser(
         "parse-document",
         help="parse one uploaded PDF into canonical artifacts with MinerU",
@@ -432,6 +455,60 @@ def _run_health() -> int:
     report = build_health_report(settings)
     for key, value in report.as_dict().items():
         print(f"{key}: {value}")
+    return 0
+
+
+async def _call_llm_smoke_test(
+    args: argparse.Namespace,
+) -> LLMResult:
+    """Call the configured provider and persist its usage observation."""
+    settings = get_settings()
+    engine = create_database_engine(settings)
+    provider = create_llm_provider(settings)
+    try:
+        gateway = LLMGateway(
+            provider,
+            DatabaseUsageRecorder(create_session_factory(engine)),
+            settings,
+        )
+        messages: list[LLMMessage] = []
+        if args.system:
+            messages.append(LLMMessage(role="system", content=args.system))
+        messages.append(LLMMessage(role="user", content=args.prompt))
+        return await gateway.complete(
+            LLMRequest(
+                messages=messages,
+                task_type=args.task_type,
+                temperature=args.temperature,
+                max_tokens=args.max_tokens,
+                model=args.model,
+            )
+        )
+    finally:
+        await provider.aclose()
+        await engine.dispose()
+
+
+def _run_llm_smoke_test(args: argparse.Namespace) -> int:
+    """Run one real configured-provider call without printing credentials."""
+    try:
+        result = asyncio.run(_call_llm_smoke_test(args))
+    except (LLMError, ValidationError, ValueError) as error:
+        print("llm_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("llm_status: interrupted", file=sys.stderr)
+        return 130
+
+    print("llm_status: ok")
+    print(f"provider: {result.provider}")
+    print(f"model: {result.model}")
+    print(f"input_tokens: {result.input_tokens}")
+    print(f"output_tokens: {result.output_tokens}")
+    print(f"latency_ms: {result.latency_ms:.2f}")
+    print(f"finish_reason: {result.finish_reason}")
+    print(f"text: {result.text}")
     return 0
 
 
@@ -853,6 +930,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "health":
         return _run_health()
+    if args.command == "llm-smoke-test":
+        return _run_llm_smoke_test(args)
     if args.command == "parse-document":
         return _run_parse_document(args.document_id)
     if args.command == "chunk-document":

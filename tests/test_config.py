@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,14 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.reranker_dtype == "float16"
     assert settings.reranker_batch_size == 4
     assert settings.reranker_max_seq_length == 512
+    assert settings.llm_provider == "deepseek"
+    assert settings.llm_base_url == "https://api.deepseek.com"
+    assert settings.llm_api_key is None
+    assert settings.llm_model == "deepseek-chat"
+    assert settings.llm_timeout_seconds == 60.0
+    assert settings.llm_max_retries == 0
+    assert settings.llm_input_cost_per_1k_tokens is None
+    assert settings.llm_output_cost_per_1k_tokens is None
 
 
 def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,6 +52,14 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_DTYPE", "float32")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_BATCH_SIZE", "2")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_MAX_SEQ_LENGTH", "256")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_BASE_URL", "https://llm.example.test/v1")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_API_KEY", "test-secret")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_MODEL", "custom-model")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_MAX_RETRIES", "2")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_INPUT_COST_PER_1K_TOKENS", "0.12")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_OUTPUT_COST_PER_1K_TOKENS", "0.34")
 
     settings = Settings(_env_file=None)
 
@@ -59,6 +76,14 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.reranker_dtype == "float32"
     assert settings.reranker_batch_size == 2
     assert settings.reranker_max_seq_length == 256
+    assert settings.llm_base_url == "https://llm.example.test/v1"
+    assert settings.llm_api_key is not None
+    assert settings.llm_api_key.get_secret_value() == "test-secret"
+    assert settings.llm_model == "custom-model"
+    assert settings.llm_timeout_seconds == 12.5
+    assert settings.llm_max_retries == 2
+    assert settings.llm_input_cost_per_1k_tokens == Decimal("0.12")
+    assert settings.llm_output_cost_per_1k_tokens == Decimal("0.34")
 
 
 def test_settings_load_dotenv_file(tmp_path: Path) -> None:
@@ -77,6 +102,15 @@ def test_settings_load_dotenv_file(tmp_path: Path) -> None:
     assert settings.environment == "test"
     assert settings.cors_origins == ["http://localhost:4173"]
     assert settings.database_url.endswith("/example")
+
+
+def test_env_example_loads_with_optional_values_empty() -> None:
+    settings = Settings(_env_file=Path(__file__).resolve().parents[1] / ".env.example")
+
+    assert settings.llm_api_key is None
+    assert settings.llm_input_cost_per_1k_tokens is None
+    assert settings.llm_output_cost_per_1k_tokens is None
+    assert settings.reranker_model_revision is None
 
 
 def test_settings_reject_invalid_values() -> None:
