@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -20,6 +21,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         env_prefix="KNOWLEDGE_SCOPE_",
+        env_ignore_empty=True,
         extra="ignore",
     )
 
@@ -56,6 +58,14 @@ class Settings(BaseSettings):
     reranker_batch_size: int = Field(default=4, ge=1)
     reranker_max_seq_length: int = Field(default=512, ge=1)
     reranker_model_revision: str | None = Field(default=None, min_length=1)
+    llm_provider: Literal["deepseek"] = "deepseek"
+    llm_base_url: str = Field(default="https://api.deepseek.com", min_length=1)
+    llm_api_key: SecretStr | None = None
+    llm_model: str = Field(default="deepseek-chat", min_length=1)
+    llm_timeout_seconds: float = Field(default=60.0, gt=0)
+    llm_max_retries: int = Field(default=0, ge=0, le=2)
+    llm_input_cost_per_1k_tokens: Decimal | None = Field(default=None, ge=0)
+    llm_output_cost_per_1k_tokens: Decimal | None = Field(default=None, ge=0)
 
 
 def get_settings() -> Settings:

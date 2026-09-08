@@ -42,6 +42,24 @@ def test_health_command_returns_failure_for_invalid_configuration(
     assert "config_status: invalid" in output.err
 
 
+def test_llm_smoke_test_fails_cleanly_without_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "knowledge_scope.cli.get_settings",
+        lambda: Settings(_env_file=None, llm_api_key=None),
+    )
+
+    exit_code = main(["llm-smoke-test", "hello"])
+    output = capsys.readouterr()
+
+    assert exit_code == 1
+    assert output.out == ""
+    assert "llm_status: failed" in output.err
+    assert "KNOWLEDGE_SCOPE_LLM_API_KEY" in output.err
+
+
 def test_parse_document_command_reports_non_sensitive_statistics(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

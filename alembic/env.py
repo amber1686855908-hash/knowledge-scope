@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from knowledge_scope.documents import models as document_models
 from knowledge_scope.knowledge_bases import models as _knowledge_base_models  # noqa: F401
+from knowledge_scope.llm import models as _llm_models  # noqa: F401
 from knowledge_scope.shared.config import get_settings
 
 config = context.config
