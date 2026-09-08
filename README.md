@@ -4,7 +4,7 @@ KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，当前提供�
 
 ## 当前状态
 
-Phase A2.3 已完成，目前提供：
+Phase A2.5 已完成，目前提供：
 
 - 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health、parse-document 和 chunk-document CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
@@ -35,6 +35,8 @@ Phase A2.2 已完成本地 dense embedding 模型选型基准：在冻结的 A2.
 Phase A2.3 已完成 Qdrant 持久化 dense retrieval 基础：Qdrant 使用本地 Docker 服务和 `knowledgescope_chunks_v1` collection，向量维度为 1024、距离为 cosine；`Qwen/Qwen3-Embedding-0.6B` 使用 A2.2 固定 revision、`prompt_name=query`、L2 归一化和 512-token 配置。索引 payload 保留 `chunk_id`、`document_id`、可选的 `knowledge_base_id`、页码、`source_block_ids`、`section_path`、`content_types`、`asset_refs`、文本和 chunk/embedding 指纹，支持确定性 point ID、文档级安全重建、旧点清理、删除清理和失败时的补偿式回滚。PostgreSQL、文件系统与 Qdrant 之间不是原子事务；向量清理失败会明确报错，并可能需要后续人工修复。详见 [A2.3 Qdrant 集成报告](docs/benchmarks/a2-3-qdrant-integration.md)。
 
 Phase A2.4 已完成本地 reranker 基础：在 Qwen dense Top-K 之后，可通过 CLI 调用本地 Cross-Encoder 对候选 chunk 重新排序；当前基准比较 `Qwen/Qwen3-Reranker-0.6B`、`BAAI/bge-reranker-v2-m3` 和 `Alibaba-NLP/gte-multilingual-reranker-base`，并记录不同候选池大小下的质量、延迟、吞吐和 CUDA 显存。当前建议将 `BAAI/bge-reranker-v2-m3` 作为质量优先的 reranker 候选，将 GTE 保留为低延迟候选；结论只基于 108 条冻结评测集和单机离线运行，不代表生产模型定论。详见 [A2.4 本地 reranker 基准报告](docs/benchmarks/a2-4-local-reranker.md)。
+
+Phase A2.5 已完成冻结 A2.1 评测集上的检索阶段基准，比较了同一 `Qwen/Qwen3-Embedding-0.6B` 的 exact dense、Qdrant dense，以及 Qdrant Top-10 + `BAAI/bge-reranker-v2-m3`；结果、Qdrant 排名一致性、延迟和 test 坏例分析见 [A2.5 检索系统基准报告](docs/benchmarks/a2-5-retrieval-system-benchmark.md)。该基准不增加 sparse/hybrid retrieval、GraphRAG、LLM 生成或前端检索功能；Qdrant 当前 collection 规模下走 full scan，不能代表大规模 ANN 性能。
 
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
@@ -158,6 +160,12 @@ uv run knowledgescope reranker-benchmark \
 
 ```bash
 uv run knowledgescope rerank-search "说明事理时应重点说明哪些内容?" --candidate-limit 20 --limit 5
+```
+
+运行 A2.5 检索阶段基准（默认使用冻结的 dev/test 评测集）：
+
+```bash
+uv run knowledgescope retrieval-system-benchmark --split both
 ```
 
 后端提供 `GET /api/v1/health/qdrant` readiness 检查和 `POST /api/v1/retrieval/search` 检索接口；当前没有前端检索页面。Qdrant、模型、向量和 benchmark 运行产物均不提交到仓库。

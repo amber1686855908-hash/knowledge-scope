@@ -33,6 +33,10 @@ data/evaluation/a2-4/
 data/benchmarks/a2-4/
 .qdrant/
 
+# Local A2.5 retrieval-system rankings and measurements
+data/evaluation/a2-5/
+data/benchmarks/a2-5/
+
 # IDE settings
 .idea/
 .vscode/

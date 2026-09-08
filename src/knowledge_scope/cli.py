@@ -42,6 +42,22 @@ from knowledge_scope.evaluation.retrieval_eval import (
     regenerate_candidate_review_pack,
     validate_runtime_evaluation,
 )
+from knowledge_scope.evaluation.retrieval_system_benchmark import (
+    DEFAULT_CHUNK_INDEX as DEFAULT_SYSTEM_CHUNK_INDEX,
+)
+from knowledge_scope.evaluation.retrieval_system_benchmark import (
+    DEFAULT_DATASET as DEFAULT_SYSTEM_DATASET,
+)
+from knowledge_scope.evaluation.retrieval_system_benchmark import (
+    DEFAULT_MATERIALIZED as DEFAULT_SYSTEM_MATERIALIZED,
+)
+from knowledge_scope.evaluation.retrieval_system_benchmark import (
+    DEFAULT_OUTPUT as DEFAULT_SYSTEM_OUTPUT,
+)
+from knowledge_scope.evaluation.retrieval_system_benchmark import (
+    RetrievalSystemBenchmarkError,
+    run_retrieval_system_benchmark,
+)
 from knowledge_scope.parsing.service import DocumentParseError, parse_document_by_id
 from knowledge_scope.retrieval.embedding import EmbeddingModelError, QwenEmbeddingModel
 from knowledge_scope.retrieval.indexing import (
@@ -316,6 +332,38 @@ def build_parser() -> argparse.ArgumentParser:
         "--dtype",
         choices=("float16", "float32", "bfloat16"),
         default="float16",
+    )
+
+    system_benchmark = subparsers.add_parser(
+        "retrieval-system-benchmark",
+        help="benchmark exact dense, Qdrant dense, and fixed BGE Top-10 retrieval",
+    )
+    system_benchmark.add_argument(
+        "--split",
+        choices=("dev", "test", "both"),
+        default="both",
+        help="benchmark the frozen dev split, test split, or both",
+    )
+    system_benchmark.add_argument(
+        "--chunk-index",
+        type=Path,
+        default=DEFAULT_SYSTEM_CHUNK_INDEX,
+    )
+    system_benchmark.add_argument(
+        "--dataset",
+        type=Path,
+        default=DEFAULT_SYSTEM_DATASET,
+    )
+    system_benchmark.add_argument(
+        "--materialized",
+        type=Path,
+        default=DEFAULT_SYSTEM_MATERIALIZED,
+    )
+    system_benchmark.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_SYSTEM_OUTPUT,
+        help="ignored runtime output directory",
     )
 
     qdrant = subparsers.add_parser(
@@ -631,6 +679,35 @@ def _run_reranker_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_retrieval_system_benchmark(args: argparse.Namespace) -> int:
+    """Run the frozen A2.5 retrieval-stage system benchmark."""
+    try:
+        outcome = run_retrieval_system_benchmark(
+            split=args.split,
+            chunk_index_path=args.chunk_index,
+            dataset_path=args.dataset,
+            materialized_path=args.materialized,
+            output_dir=args.output,
+        )
+    except (RetrievalSystemBenchmarkError, ValueError) as error:
+        print("retrieval_system_benchmark_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("retrieval_system_benchmark_status: interrupted", file=sys.stderr)
+        return 130
+
+    manifest = outcome["manifest"]
+    if not isinstance(manifest, dict):
+        print("retrieval_system_benchmark_status: failed", file=sys.stderr)
+        print("error: benchmark manifest is invalid", file=sys.stderr)
+        return 1
+    print("retrieval_system_benchmark_status: complete")
+    print(f"output: {args.output}")
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _run_rerank_search(args: argparse.Namespace) -> int:
     """Run the developer dense-then-rerank search workflow."""
     try:
@@ -788,6 +865,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_embedding_benchmark(args)
     if args.command == "reranker-benchmark":
         return _run_reranker_benchmark(args)
+    if args.command == "retrieval-system-benchmark":
+        return _run_retrieval_system_benchmark(args)
     if args.command == "qdrant":
         return _run_qdrant(args)
     if args.command == "rerank-search":
