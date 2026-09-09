@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from knowledge_scope import __version__
+from knowledge_scope.graph.neo4j import Neo4jGraphStore
 from knowledge_scope.llm.gateway import LLMGateway
 from knowledge_scope.llm.providers import create_llm_provider
 from knowledge_scope.llm.usage import DatabaseUsageRecorder
@@ -27,10 +28,10 @@ from .documents import router as documents_router
 from .knowledge_bases import router as knowledge_bases_router
 from .rag import router as rag_router
 from .retrieval import router as retrieval_router
-from .schemas import HealthResponse, MetaResponse, QdrantHealthResponse
+from .schemas import HealthResponse, MetaResponse, Neo4jHealthResponse, QdrantHealthResponse
 
 API_PREFIX: Final = "/api/v1"
-CURRENT_PHASE: Final = "A2.7"
+CURRENT_PHASE: Final = "A3.1"
 PROJECT_STATUS: Final = "foundation"
 
 
@@ -67,6 +68,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             await provider.aclose()
         await application.state.db_engine.dispose()
         application.state.vector_store.close()
+        application.state.graph_store.close()
 
 
 def create_app(
@@ -76,6 +78,7 @@ def create_app(
     vector_store: QdrantVectorStore | None = None,
     embedding_model: QwenEmbeddingModel | None = None,
     rag_service: RAGService | None = None,
+    graph_store: Neo4jGraphStore | None = None,
 ) -> FastAPI:
     """Create the API application with validated runtime settings."""
     runtime_settings = settings if settings is not None else get_settings()
@@ -93,6 +96,7 @@ def create_app(
     application.state.vector_store = vector_store or QdrantVectorStore(runtime_settings)
     application.state.embedding_model = embedding_model or QwenEmbeddingModel(runtime_settings)
     application.state.rag_service = rag_service
+    application.state.graph_store = graph_store or Neo4jGraphStore(runtime_settings)
     application.state.llm_provider = None
     application.add_middleware(
         CORSMiddleware,
@@ -129,6 +133,16 @@ def create_app(
                 detail=readiness.error or "Qdrant is unavailable",
             )
         return QdrantHealthResponse.model_validate(readiness.model_dump())
+
+    @router.get("/health/neo4j", response_model=Neo4jHealthResponse, tags=["system"])
+    def neo4j_health(request: Request) -> Neo4jHealthResponse:
+        readiness = request.app.state.graph_store.readiness()
+        if readiness.status == "unavailable":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=readiness.error or "Neo4j is unavailable",
+            )
+        return Neo4jHealthResponse.model_validate(readiness.model_dump())
 
     application.include_router(router)
     application.include_router(knowledge_bases_router, prefix=API_PREFIX)

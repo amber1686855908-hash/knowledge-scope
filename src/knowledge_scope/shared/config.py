@@ -44,6 +44,11 @@ class Settings(BaseSettings):
         default="knowledgescope_chunks_v1",
         pattern=r"^[a-z0-9][a-z0-9_-]{2,62}$",
     )
+    neo4j_uri: str = Field(default="bolt://127.0.0.1:7687", min_length=1)
+    neo4j_username: str = Field(default="neo4j", min_length=1)
+    neo4j_password: SecretStr | None = None
+    neo4j_database: str = Field(default="neo4j", min_length=1)
+    neo4j_timeout_seconds: float = Field(default=10.0, gt=0)
     embedding_device: str = Field(default="cuda", min_length=1)
     embedding_dtype: Literal["float16", "float32", "bfloat16"] = "float16"
     embedding_batch_size: int = Field(default=4, ge=1)

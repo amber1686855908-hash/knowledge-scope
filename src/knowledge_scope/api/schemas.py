@@ -36,7 +36,7 @@ class MetaResponse(BaseModel):
 
     project_name: str
     version: str
-    phase: Literal["A2.7"]
+    phase: Literal["A3.1"]
     status: Literal["foundation"]
     config_status: Literal["ok"]
 
@@ -150,6 +150,15 @@ class QdrantHealthResponse(BaseModel):
     collection_name: str
     collection_exists: bool
     vector_dimension: int | None = QDRANT_VECTOR_DIMENSION
+    error: str | None = None
+
+
+class Neo4jHealthResponse(BaseModel):
+    """Non-sensitive graph-store connectivity information."""
+
+    status: Literal["ready", "unavailable"]
+    database: str
+    schema_version: Literal["1.0"]
     error: str | None = None
 
 

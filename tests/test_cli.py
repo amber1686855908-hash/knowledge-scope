@@ -5,10 +5,27 @@ import pytest
 
 from knowledge_scope.chunking.models import ChunkedDocument
 from knowledge_scope.cli import main
+from knowledge_scope.graph.neo4j import Neo4jReadiness
 from knowledge_scope.parsing.mineru_adapter import AdapterStats
 from knowledge_scope.parsing.models import CanonicalDocument, Page, TextBlock
 from knowledge_scope.parsing.service import ParseResult
 from knowledge_scope.shared.config import Settings
+
+
+class _FakeNeo4jStore:
+    def __init__(self, _settings: Settings) -> None:
+        self.schema_called = False
+        self.closed = False
+
+    def readiness(self) -> Neo4jReadiness:
+        return Neo4jReadiness(status="ready", database="neo4j")
+
+    def ensure_schema(self) -> Neo4jReadiness:
+        self.schema_called = True
+        return Neo4jReadiness(status="ready", database="neo4j")
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_health_command_reports_project_and_configuration(
@@ -40,6 +57,26 @@ def test_health_command_returns_failure_for_invalid_configuration(
     assert exit_code == 1
     assert output.out == ""
     assert "config_status: invalid" in output.err
+
+
+def test_neo4j_commands_report_readiness_and_schema(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "knowledge_scope.cli.get_settings",
+        lambda: Settings(_env_file=None, environment="test"),
+    )
+    monkeypatch.setattr("knowledge_scope.cli.Neo4jGraphStore", _FakeNeo4jStore)
+
+    assert main(["neo4j", "check"]) == 0
+    check_output = capsys.readouterr()
+    assert '"status": "ready"' in check_output.out
+    assert "password" not in check_output.out
+
+    assert main(["neo4j", "schema"]) == 0
+    schema_output = capsys.readouterr()
+    assert '"schema_version": "1.0"' in schema_output.out
 
 
 def test_llm_smoke_test_fails_cleanly_without_api_key(
