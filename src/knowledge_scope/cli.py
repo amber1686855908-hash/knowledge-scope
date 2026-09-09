@@ -49,6 +49,18 @@ from knowledge_scope.evaluation.graph_extraction_sample import (
     run_sample_evaluation,
     select_sample_chunks,
 )
+from knowledge_scope.evaluation.graph_retrieval_sample import (
+    DEFAULT_INPUT as DEFAULT_GRAPH_RETRIEVAL_INPUT,
+)
+from knowledge_scope.evaluation.graph_retrieval_sample import (
+    DEFAULT_OUTPUT as DEFAULT_GRAPH_RETRIEVAL_OUTPUT,
+)
+from knowledge_scope.evaluation.graph_retrieval_sample import (
+    DEFAULT_SAMPLE_KNOWLEDGE_BASE_ID as DEFAULT_GRAPH_RETRIEVAL_KNOWLEDGE_BASE_ID,
+)
+from knowledge_scope.evaluation.graph_retrieval_sample import (
+    run_graph_retrieval_review_sample,
+)
 from knowledge_scope.evaluation.parsing_benchmark import (
     RAW_RETENTION_VALUES,
     BenchmarkConfig,
@@ -83,6 +95,8 @@ from knowledge_scope.evaluation.retrieval_system_benchmark import (
 )
 from knowledge_scope.extraction.service import ExtractionError
 from knowledge_scope.graph.neo4j import GraphStoreError, Neo4jGraphStore
+from knowledge_scope.graph.retrieval import GraphRetrievalConfig
+from knowledge_scope.graph.retrieval_service import GraphRetrievalError, GraphRetrievalService
 from knowledge_scope.linking.service import LinkingValidationError
 from knowledge_scope.llm import LLMGateway, LLMMessage, LLMRequest, LLMResult, create_llm_provider
 from knowledge_scope.llm.errors import LLMError
@@ -103,6 +117,7 @@ from knowledge_scope.retrieval.reranking import (
 )
 from knowledge_scope.retrieval.service import DenseRetrievalService, RetrievalError
 from knowledge_scope.shared import build_health_report, get_settings
+from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
 
 
@@ -535,6 +550,41 @@ def build_parser() -> argparse.ArgumentParser:
         "--persist",
         action="store_true",
         help="persist this explicit sample through the local Neo4j adapter",
+    )
+
+    graph_search = subparsers.add_parser(
+        "graph-search",
+        help="run bounded evidence-first graph retrieval for one knowledge base",
+    )
+    graph_search.add_argument("query")
+    graph_search.add_argument("--knowledge-base-id", type=UUID, required=True)
+    graph_search.add_argument("--max-seed-entities", type=_positive_int)
+    graph_search.add_argument("--max-hops", type=_positive_int, choices=(1, 2))
+    graph_search.add_argument("--max-neighbors", type=_positive_int)
+    graph_search.add_argument("--max-relations", type=_positive_int)
+    graph_search.add_argument("--max-evidence", type=_positive_int)
+
+    graph_retrieval_sample = subparsers.add_parser(
+        "graph-retrieval-sample",
+        help="review a small graph-retrieval sample over an existing local graph",
+    )
+    graph_retrieval_sample.add_argument(
+        "--input",
+        type=Path,
+        nargs="+",
+        default=list(DEFAULT_GRAPH_RETRIEVAL_INPUT),
+        help="ignored A3.2 accepted-extraction JSONL file(s)",
+    )
+    graph_retrieval_sample.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_GRAPH_RETRIEVAL_OUTPUT,
+        help="ignored runtime review output directory",
+    )
+    graph_retrieval_sample.add_argument(
+        "--knowledge-base-id",
+        type=UUID,
+        default=DEFAULT_GRAPH_RETRIEVAL_KNOWLEDGE_BASE_ID,
     )
 
     rerank_search = subparsers.add_parser(
@@ -1064,6 +1114,92 @@ def _run_neo4j(args: argparse.Namespace) -> int:
     return 1
 
 
+def _graph_retrieval_config(
+    settings: Settings,
+    args: argparse.Namespace | None = None,
+) -> GraphRetrievalConfig:
+    """Build the small graph-retrieval bounds from settings and CLI overrides."""
+
+    values = {
+        "max_seed_entities": settings.graph_retrieval_max_seed_entities,
+        "max_hops": settings.graph_retrieval_max_hops,
+        "max_neighbors": settings.graph_retrieval_max_neighbors,
+        "max_relations": settings.graph_retrieval_max_relations,
+        "max_evidence": settings.graph_retrieval_max_evidence,
+        "max_entity_scan": settings.graph_retrieval_max_entity_scan,
+        "lexical_threshold": settings.graph_retrieval_lexical_threshold,
+    }
+    if args is not None:
+        for name in (
+            "max_seed_entities",
+            "max_hops",
+            "max_neighbors",
+            "max_relations",
+            "max_evidence",
+        ):
+            value = getattr(args, name, None)
+            if value is not None:
+                values[name] = value
+    return GraphRetrievalConfig(**values)
+
+
+def _run_graph_search(args: argparse.Namespace) -> int:
+    """Run the developer-only bounded graph retrieval workflow."""
+
+    store = None
+    try:
+        settings = get_settings()
+        store = Neo4jGraphStore(settings)
+        result = GraphRetrievalService(
+            store,
+            config=_graph_retrieval_config(settings, args),
+        ).search(args.query, args.knowledge_base_id)
+        print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
+        return 0
+    except (GraphRetrievalError, GraphStoreError, ValidationError, ValueError) as error:
+        print("graph_retrieval_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        if store is not None:
+            store.close()
+
+
+def _run_graph_retrieval_sample(args: argparse.Namespace) -> int:
+    """Run the bounded read-only graph retrieval review sample."""
+
+    store = None
+    try:
+        settings = get_settings()
+        store = Neo4jGraphStore(settings)
+        readiness = store.readiness()
+        if readiness.status != "ready":
+            raise GraphStoreError("Neo4j is not ready; run `knowledgescope neo4j check` first")
+        summary = run_graph_retrieval_review_sample(
+            args.input,
+            settings=settings,
+            output_dir=args.output,
+            knowledge_base_id=args.knowledge_base_id,
+            store=store,
+        )
+        print("graph_retrieval_status: complete")
+        print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+        return 0
+    except (
+        GraphRetrievalError,
+        GraphStoreError,
+        RetrievalEvalError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        print("graph_retrieval_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        if store is not None:
+            store.close()
+
+
 async def _run_graph_extraction_sample_async(args: argparse.Namespace) -> dict[str, object]:
     """Run the explicit, small A3.2 sample workflow and close its resources."""
 
@@ -1220,6 +1356,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_graph_extraction_sample(args)
     if args.command == "entity-linking-sample":
         return _run_entity_linking_sample(args)
+    if args.command == "graph-search":
+        return _run_graph_search(args)
+    if args.command == "graph-retrieval-sample":
+        return _run_graph_retrieval_sample(args)
     if args.command == "rerank-search":
         return _run_rerank_search(args)
 

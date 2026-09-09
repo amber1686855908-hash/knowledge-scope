@@ -88,6 +88,24 @@ def test_graph_extraction_sample_parser_has_explicit_runtime_defaults() -> None:
     assert args.output == Path("data/evaluation/a3-2")
 
 
+def test_graph_retrieval_commands_have_bounded_typed_arguments() -> None:
+    search_args = build_parser().parse_args(
+        [
+            "graph-search",
+            "查找起点",
+            "--knowledge-base-id",
+            "11111111-1111-4111-8111-111111111111",
+            "--max-hops",
+            "1",
+        ]
+    )
+    sample_args = build_parser().parse_args(["graph-retrieval-sample"])
+
+    assert search_args.max_hops == 1
+    assert search_args.knowledge_base_id == UUID("11111111-1111-4111-8111-111111111111")
+    assert sample_args.output == Path("data/evaluation/a3-4")
+
+
 def test_llm_smoke_test_fails_cleanly_without_api_key(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
