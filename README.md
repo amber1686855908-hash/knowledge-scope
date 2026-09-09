@@ -4,7 +4,7 @@ KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，当前提供�
 
 ## 当前状态
 
-Phase A2.5 已完成，目前提供：
+Phase A3.1 已完成，目前提供：
 
 - 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health、parse-document 和 chunk-document CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
@@ -42,6 +42,8 @@ Phase A2.6 已完成 provider-independent 的 async LLM gateway 基础：`knowle
 
 Phase A2.7 已完成首个文本 RAG QA 编排：`POST /api/v1/rag/query` 复用 `Qwen/Qwen3-Embedding-0.6B`、Qdrant dense Top-10、显式 `BAAI/bge-reranker-v2-m3` 和 A2.6 LLM Gateway，通过 SSE 返回增量回答、应用生成的 citation metadata 及最终状态/usage。上下文按 reranker 顺序选择，抑制同一 lineage 下的精确重复文本，并受 `KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS` 字符预算限制；该预算只约束 chunk 文本字符数，不是 tokenizer-aware 的精确 LLM token context budget。无可用文本证据时受控返回证据不足，不调用 LLM；本地模型推理在共享 adapter 上串行化，当前不承诺 GPU 并发吞吐。请求 query 限制为 4,000 字符，当前接口适用于受信任的本地/内网开发环境，不应直接暴露公网。当前没有前端聊天页面、答案质量 benchmark 或后续 GraphRAG/Agent 能力；详见 [A2.7 RAG QA 说明](docs/architecture/rag-qa.md)。
 
+Phase A3.1 已完成 provider-independent 的知识图谱 schema 与 Neo4j 基础设施：`knowledge_scope.graph` 提供带来源校验的 `GraphEntity`、`GraphRelation` 和 `GraphProvenance`。实体/关系使用包含知识库、文档本地作用域的结构化 `entity_v2_*`、`relation_v2_*` ID；这只是抽取阶段的 provisional/local identity，不会按名称自动执行跨文档或跨知识库实体链接。`KnowledgeEvidence` 节点保存 `document_id`、页码、`chunk_id` 和 `source_block_ids` lineage，extraction provenance 保存在证据上下文中。`Neo4jGraphStore` 支持连接检查、显式 schema/index 初始化、实体/关系幂等 upsert、别名集合并集、按文档清理和基础查找；Neo4j 使用本地 Docker 服务，数据保存在 named volume。PostgreSQL、文件系统与 Neo4j 之间不是分布式原子事务，Neo4j 单库写入失败由事务回滚，跨系统恢复仍需上层补偿。当前不包含 LLM 实体/关系抽取、实体链接、GraphRAG、混合检索或前端图可视化；详见 [A3.1 知识图谱基础设施说明](docs/architecture/knowledge-graph.md)。
+
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
 ## 本地开发
@@ -62,10 +64,10 @@ npm install
 ### 启动 PostgreSQL
 
 ```bash
-docker compose up -d postgres qdrant
+docker compose up -d postgres qdrant neo4j
 ```
 
-Compose 默认将 PostgreSQL 映射到 `127.0.0.1:5433`、Qdrant 映射到 `127.0.0.1:6333`，本地开发凭据、数据库名和 Qdrant collection 配置定义在 [compose.yaml](compose.yaml) 与 [.env.example](.env.example) 中。复制 [.env.example](.env.example) 为 `.env` 后，可通过 `KNOWLEDGE_SCOPE_POSTGRES_PORT` 和 `KNOWLEDGE_SCOPE_QDRANT_URL` 修改连接配置；不要在 `.env` 中提交 secrets。Qdrant 数据保存在 Docker named volume，不会写入 Git。
+Compose 默认将 PostgreSQL 映射到 `127.0.0.1:5433`、Qdrant 映射到 `127.0.0.1:6333`、Neo4j Bolt 映射到 `127.0.0.1:7687`、HTTP 映射到 `127.0.0.1:7474`，本地开发凭据、数据库名、Qdrant collection 和 Neo4j 连接配置定义在 [compose.yaml](compose.yaml) 与 [.env.example](.env.example) 中。复制 [.env.example](.env.example) 为 `.env` 后，可通过 `KNOWLEDGE_SCOPE_POSTGRES_PORT`、`KNOWLEDGE_SCOPE_QDRANT_URL` 和 `KNOWLEDGE_SCOPE_NEO4J_URI` 修改连接配置；Compose 在未提供 Neo4j 密码时只使用本地开发默认值，任何共享环境都必须显式配置凭据。不要在 `.env` 中提交 secrets。Qdrant 和 Neo4j 数据保存在 Docker named volume，不会写入 Git。
 
 ### 执行数据库迁移
 
@@ -187,6 +189,15 @@ uv sync --group embedding-benchmark --group reranker-benchmark
 ```
 
 后端提供 `GET /api/v1/health/qdrant` readiness 检查、`POST /api/v1/retrieval/search` dense 检索接口和 `POST /api/v1/rag/query` SSE RAG QA 接口；当前没有前端检索或聊天页面。Qdrant、模型、向量和 benchmark 运行产物均不提交到仓库。
+
+检查 Neo4j 连接并显式初始化图 schema：
+
+```bash
+uv run knowledgescope neo4j check
+uv run knowledgescope neo4j schema
+```
+
+上述命令读取 `KNOWLEDGE_SCOPE_NEO4J_URI`、`KNOWLEDGE_SCOPE_NEO4J_USERNAME`、`KNOWLEDGE_SCOPE_NEO4J_PASSWORD` 和 `KNOWLEDGE_SCOPE_NEO4J_DATABASE`；密码只从未跟踪的 `.env` 读取，不会出现在输出、图节点或关系属性中。Neo4j readiness 只代表连接可用，schema 初始化仍需显式执行。
 
 ### 上传文件说明
 

@@ -3,6 +3,7 @@ import httpx
 from fastapi import FastAPI
 
 from knowledge_scope.api.app import create_app
+from knowledge_scope.graph.neo4j import Neo4jReadiness
 from knowledge_scope.shared.config import Settings
 
 
@@ -49,7 +50,7 @@ def test_meta_endpoint_reports_current_foundation_status() -> None:
     assert response.json() == {
         "project_name": "KnowledgeScope",
         "version": "0.1.0",
-        "phase": "A2.7",
+        "phase": "A3.1",
         "status": "foundation",
         "config_status": "ok",
     }
@@ -90,3 +91,33 @@ def test_cors_allows_json_crud_preflight() -> None:
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
     assert "POST" in response.headers["access-control-allow-methods"]
     assert "content-type" in response.headers["access-control-allow-headers"].lower()
+
+
+class _FakeGraphStore:
+    def readiness(self) -> Neo4jReadiness:
+        return Neo4jReadiness(status="ready", database="neo4j")
+
+    def close(self) -> None:
+        return None
+
+
+def test_neo4j_health_endpoint_reports_non_sensitive_readiness() -> None:
+    application = create_app(
+        Settings(_env_file=None, environment="test"),
+        graph_store=_FakeGraphStore(),  # type: ignore[arg-type]
+    )
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=application)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.get("/api/v1/health/neo4j")
+
+    response = anyio.run(request)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "database": "neo4j",
+        "schema_version": "1.0",
+        "error": None,
+    }

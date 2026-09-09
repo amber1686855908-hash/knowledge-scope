@@ -58,6 +58,7 @@ from knowledge_scope.evaluation.retrieval_system_benchmark import (
     RetrievalSystemBenchmarkError,
     run_retrieval_system_benchmark,
 )
+from knowledge_scope.graph.neo4j import GraphStoreError, Neo4jGraphStore
 from knowledge_scope.llm import LLMGateway, LLMMessage, LLMRequest, LLMResult, create_llm_provider
 from knowledge_scope.llm.errors import LLMError
 from knowledge_scope.llm.schemas import LLM_TASK_TYPES
@@ -419,6 +420,14 @@ def build_parser() -> argparse.ArgumentParser:
     qdrant_search.add_argument("--knowledge-base-id", type=UUID)
     qdrant_search.add_argument("--document-id", type=UUID)
     qdrant_search.add_argument("--limit", type=_positive_int, default=10)
+
+    neo4j = subparsers.add_parser(
+        "neo4j",
+        help="check and initialize the local Neo4j graph infrastructure",
+    )
+    neo4j_actions = neo4j.add_subparsers(dest="neo4j_action", required=True)
+    neo4j_actions.add_parser("check", help="check Neo4j connectivity")
+    neo4j_actions.add_parser("schema", help="create or validate graph constraints and indexes")
 
     rerank_search = subparsers.add_parser(
         "rerank-search",
@@ -923,6 +932,30 @@ def _run_qdrant(args: argparse.Namespace) -> int:
     return 1
 
 
+def _run_neo4j(args: argparse.Namespace) -> int:
+    """Run the small local Neo4j developer workflow."""
+    store = None
+    try:
+        settings = get_settings()
+        store = Neo4jGraphStore(settings)
+        if args.neo4j_action == "check":
+            readiness = store.readiness()
+            print(json.dumps(readiness.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return 0 if readiness.status == "ready" else 1
+        if args.neo4j_action == "schema":
+            readiness = store.ensure_schema()
+            print(json.dumps(readiness.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return 0
+    except (GraphStoreError, ValidationError, ValueError) as error:
+        print("neo4j_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        if store is not None:
+            store.close()
+    return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     parser = build_parser()
@@ -948,6 +981,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_retrieval_system_benchmark(args)
     if args.command == "qdrant":
         return _run_qdrant(args)
+    if args.command == "neo4j":
+        return _run_neo4j(args)
     if args.command == "rerank-search":
         return _run_rerank_search(args)
 

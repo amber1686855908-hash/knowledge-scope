@@ -27,6 +27,22 @@ services:
     volumes:
       - knowledgescope-qdrant-data:/qdrant/storage
 
+  neo4j:
+    image: neo4j:5.26-community
+    environment:
+      NEO4J_AUTH: "neo4j/${KNOWLEDGE_SCOPE_NEO4J_PASSWORD:-knowledgescope}"
+    ports:
+      - "127.0.0.1:${KNOWLEDGE_SCOPE_NEO4J_BOLT_PORT:-7687}:7687"
+      - "127.0.0.1:${KNOWLEDGE_SCOPE_NEO4J_HTTP_PORT:-7474}:7474"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/7687'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - knowledgescope-neo4j-data:/data
+
 volumes:
   knowledgescope-postgres-data:
   knowledgescope-qdrant-data:
+  knowledgescope-neo4j-data:

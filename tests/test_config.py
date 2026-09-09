@@ -22,6 +22,11 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.mineru_timeout_seconds == 1800
     assert settings.qdrant_url == "http://127.0.0.1:6333"
     assert settings.qdrant_collection_name == "knowledgescope_chunks_v1"
+    assert settings.neo4j_uri == "bolt://127.0.0.1:7687"
+    assert settings.neo4j_username == "neo4j"
+    assert settings.neo4j_password is None
+    assert settings.neo4j_database == "neo4j"
+    assert settings.neo4j_timeout_seconds == 10.0
     assert settings.embedding_model_revision
     assert settings.reranker_model_key == "qwen3-reranker-0.6b"
     assert settings.reranker_device == "cuda"
@@ -51,6 +56,11 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_MINERU_TIMEOUT_SECONDS", "600")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_QDRANT_URL", "http://localhost:6334")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_QDRANT_UPSERT_BATCH_SIZE", "64")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_NEO4J_URI", "bolt://localhost:17687")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_NEO4J_USERNAME", "graph-user")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_NEO4J_PASSWORD", "test-graph-secret")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_NEO4J_DATABASE", "graph-test")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_NEO4J_TIMEOUT_SECONDS", "2.5")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_MODEL_KEY", "bge-reranker-v2-m3")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_DEVICE", "cpu")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RERANKER_DTYPE", "float32")
@@ -79,6 +89,12 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.mineru_timeout_seconds == 600
     assert settings.qdrant_url == "http://localhost:6334"
     assert settings.qdrant_upsert_batch_size == 64
+    assert settings.neo4j_uri == "bolt://localhost:17687"
+    assert settings.neo4j_username == "graph-user"
+    assert settings.neo4j_password is not None
+    assert settings.neo4j_password.get_secret_value() == "test-graph-secret"
+    assert settings.neo4j_database == "graph-test"
+    assert settings.neo4j_timeout_seconds == 2.5
     assert settings.reranker_model_key == "bge-reranker-v2-m3"
     assert settings.reranker_device == "cpu"
     assert settings.reranker_dtype == "float32"
@@ -123,6 +139,7 @@ def test_env_example_loads_with_optional_values_empty() -> None:
     assert settings.llm_input_cost_per_1k_tokens is None
     assert settings.llm_output_cost_per_1k_tokens is None
     assert settings.reranker_model_revision is None
+    assert settings.neo4j_password is None
 
 
 def test_settings_reject_invalid_values() -> None:
