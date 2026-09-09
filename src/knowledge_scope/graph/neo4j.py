@@ -30,6 +30,14 @@ from .models import (
     evidence_id_for,
     relation_id_for,
 )
+from .retrieval import (
+    GraphCanonicalReference,
+    GraphEntityReference,
+    GraphEntitySnapshot,
+    GraphEvidence,
+    GraphNeighbor,
+    GraphRelationReference,
+)
 
 _T = TypeVar("_T")
 
@@ -615,6 +623,210 @@ WHERE NOT (canonical)<-[:CANONICAL_MEMBER_OF]-()
 DETACH DELETE canonical
 """.strip()
 
+_LIST_RETRIEVAL_ENTITIES_QUERY = """
+MATCH (entity:KnowledgeEntity {knowledge_base_id: $knowledge_base_id})
+WHERE EXISTS {
+    MATCH (entity)-[:SUPPORTED_BY]->(
+        support:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+    )
+    WHERE support.document_id = entity.document_id
+}
+WITH entity
+ORDER BY entity.entity_id
+LIMIT $max_entities
+OPTIONAL MATCH (entity)-[membership:CANONICAL_MEMBER_OF]->(
+    canonical:CanonicalEntity {knowledge_base_id: $knowledge_base_id}
+)
+WHERE canonical IS NULL OR (
+    membership.knowledge_base_id = $knowledge_base_id
+    AND membership.local_entity_id = entity.entity_id
+    AND membership.canonical_entity_id = canonical.canonical_entity_id
+)
+WITH entity,
+     collect(DISTINCT CASE
+         WHEN canonical IS NULL THEN null
+         ELSE properties(canonical)
+     END) AS canonical_values
+CALL (entity) {
+    OPTIONAL MATCH (entity)-[:SUPPORTED_BY]->(
+        evidence:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+    )
+    WHERE evidence.document_id = entity.document_id
+    RETURN collect(DISTINCT CASE
+        WHEN evidence IS NULL THEN null
+        ELSE properties(evidence)
+    END) AS evidence_values
+}
+RETURN entity.entity_id AS entity_id,
+       properties(entity) AS entity,
+       canonical_values,
+       evidence_values
+ORDER BY entity_id
+""".strip()
+
+_GET_RETRIEVAL_NEIGHBORS_QUERY = """
+MATCH (seed:KnowledgeEntity {
+    entity_id: $entity_id,
+    knowledge_base_id: $knowledge_base_id
+})
+WHERE EXISTS {
+    MATCH (seed)-[:SUPPORTED_BY]->(
+        seed_support:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+    )
+    WHERE seed_support.document_id = seed.document_id
+}
+CALL (seed) {
+    MATCH (seed)-[:SOURCE_OF]->(relation:KnowledgeRelation)-[:TARGET_OF]->(
+        neighbor:KnowledgeEntity
+    )
+    WHERE relation.knowledge_base_id = $knowledge_base_id
+      AND relation.document_id = seed.document_id
+      AND neighbor.knowledge_base_id = $knowledge_base_id
+      AND neighbor.document_id = seed.document_id
+      AND EXISTS {
+          MATCH (neighbor)-[:SUPPORTED_BY]->(
+              neighbor_support:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+          )
+          WHERE neighbor_support.document_id = neighbor.document_id
+      }
+      AND EXISTS {
+          MATCH (relation)-[:SUPPORTED_BY]->(
+              relation_support:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+          )
+          WHERE relation_support.document_id = relation.document_id
+      }
+    WITH DISTINCT seed, neighbor
+    ORDER BY neighbor.entity_id
+    LIMIT $max_neighbors
+    CALL (seed, neighbor) {
+        MATCH (seed)-[:SOURCE_OF]->(relation:KnowledgeRelation)-[:TARGET_OF]->(
+            candidate:KnowledgeEntity
+        )
+        WHERE candidate.entity_id = neighbor.entity_id
+          AND relation.knowledge_base_id = $knowledge_base_id
+          AND relation.document_id = seed.document_id
+          AND EXISTS {
+              MATCH (relation)-[:SUPPORTED_BY]->(
+                  relation_support:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+              )
+              WHERE relation_support.document_id = relation.document_id
+          }
+        RETURN relation
+        ORDER BY relation.relation_id
+        LIMIT $max_relations
+    }
+    RETURN neighbor, relation, "forward" AS direction, null AS canonical
+    UNION ALL
+    MATCH (seed)<-[:TARGET_OF]-(relation:KnowledgeRelation)<-[:SOURCE_OF]-(
+        neighbor:KnowledgeEntity
+    )
+    WHERE relation.knowledge_base_id = $knowledge_base_id
+      AND relation.document_id = seed.document_id
+      AND neighbor.knowledge_base_id = $knowledge_base_id
+      AND neighbor.document_id = seed.document_id
+      AND EXISTS {
+          MATCH (neighbor)-[:SUPPORTED_BY]->(
+              neighbor_support:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+          )
+          WHERE neighbor_support.document_id = neighbor.document_id
+      }
+      AND EXISTS {
+          MATCH (relation)-[:SUPPORTED_BY]->(
+              relation_support:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+          )
+          WHERE relation_support.document_id = relation.document_id
+      }
+    WITH DISTINCT seed, neighbor
+    ORDER BY neighbor.entity_id
+    LIMIT $max_neighbors
+    CALL (seed, neighbor) {
+        MATCH (seed)<-[:TARGET_OF]-(relation:KnowledgeRelation)<-[:SOURCE_OF]-(
+            candidate:KnowledgeEntity
+        )
+        WHERE candidate.entity_id = neighbor.entity_id
+          AND relation.knowledge_base_id = $knowledge_base_id
+          AND relation.document_id = seed.document_id
+          AND EXISTS {
+              MATCH (relation)-[:SUPPORTED_BY]->(
+                  relation_support:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+              )
+              WHERE relation_support.document_id = relation.document_id
+          }
+        RETURN relation
+        ORDER BY relation.relation_id
+        LIMIT $max_relations
+    }
+    RETURN neighbor, relation, "reverse" AS direction, null AS canonical
+    UNION ALL
+    MATCH (seed)-[seed_membership:CANONICAL_MEMBER_OF]->(
+        canonical:CanonicalEntity {knowledge_base_id: $knowledge_base_id}
+    )<-[neighbor_membership:CANONICAL_MEMBER_OF]-(neighbor:KnowledgeEntity)
+    WHERE neighbor.knowledge_base_id = $knowledge_base_id
+      AND seed_membership.knowledge_base_id = $knowledge_base_id
+      AND neighbor_membership.knowledge_base_id = $knowledge_base_id
+      AND seed_membership.local_entity_id = seed.entity_id
+      AND seed_membership.canonical_entity_id = canonical.canonical_entity_id
+      AND neighbor_membership.local_entity_id = neighbor.entity_id
+      AND neighbor_membership.canonical_entity_id = canonical.canonical_entity_id
+      AND EXISTS {
+          MATCH (neighbor)-[:SUPPORTED_BY]->(
+              neighbor_support:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+          )
+          WHERE neighbor_support.document_id = neighbor.document_id
+      }
+    WITH DISTINCT seed, neighbor, canonical
+    ORDER BY neighbor.entity_id, canonical.canonical_entity_id
+    LIMIT $max_neighbors
+    RETURN neighbor, null AS relation, "canonical_bridge" AS direction, canonical
+}
+WITH seed, neighbor, relation, canonical, direction
+WHERE neighbor.entity_id <> seed.entity_id
+WITH seed, neighbor, relation, canonical, direction
+ORDER BY neighbor.entity_id,
+         coalesce(relation.relation_id, ""),
+         coalesce(canonical.canonical_entity_id, ""),
+         direction
+CALL (seed) {
+    OPTIONAL MATCH (seed)-[:SUPPORTED_BY]->(
+        evidence:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+    )
+    WHERE evidence.document_id = seed.document_id
+    RETURN collect(DISTINCT CASE
+        WHEN evidence IS NULL THEN null
+        ELSE properties(evidence)
+    END) AS seed_evidence
+}
+CALL (neighbor) {
+    OPTIONAL MATCH (neighbor)-[:SUPPORTED_BY]->(
+        evidence:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+    )
+    WHERE evidence.document_id = neighbor.document_id
+    RETURN collect(DISTINCT CASE
+        WHEN evidence IS NULL THEN null
+        ELSE properties(evidence)
+    END) AS neighbor_evidence
+}
+CALL (relation) {
+    OPTIONAL MATCH (relation)-[:SUPPORTED_BY]->(
+        evidence:KnowledgeEvidence {knowledge_base_id: $knowledge_base_id}
+    )
+    WHERE evidence.document_id = relation.document_id
+    RETURN collect(DISTINCT CASE
+        WHEN evidence IS NULL THEN null
+        ELSE properties(evidence)
+    END) AS relation_evidence
+}
+RETURN seed.entity_id AS seed_entity_id,
+       properties(neighbor) AS neighbor,
+       CASE WHEN relation IS NULL THEN null ELSE properties(relation) END AS relation,
+       CASE WHEN canonical IS NULL THEN null ELSE properties(canonical) END AS canonical,
+       direction,
+       seed_evidence + neighbor_evidence + relation_evidence AS evidence,
+       seed_evidence,
+       neighbor_evidence,
+       relation_evidence
+""".strip()
+
 
 def _record_value(record: Any, key: str) -> Any:
     """Read a Neo4j record or a small test-double record consistently."""
@@ -801,6 +1013,112 @@ def _relation_from_record(record: Any) -> GraphRelation:
         return GraphRelation.model_validate(payload)
     except (TypeError, ValueError) as error:
         raise GraphStoreError("Neo4j returned invalid relation data") from error
+
+
+def _retrieval_evidence_from_properties(value: Any) -> GraphEvidence | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise GraphStoreError("Neo4j returned malformed retrieval evidence")
+    payload = {key: item for key, item in value.items() if key in GraphEvidence.model_fields}
+    extraction = value.get("extraction_provenance_json")
+    if extraction is not None:
+        if not isinstance(extraction, str):
+            raise GraphStoreError("Neo4j returned malformed extraction provenance")
+        try:
+            payload["extraction_provenance"] = json.loads(extraction)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise GraphStoreError("Neo4j returned invalid extraction provenance") from error
+    try:
+        return GraphEvidence.model_validate(payload)
+    except (TypeError, ValueError) as error:
+        raise GraphStoreError("Neo4j returned invalid retrieval evidence") from error
+
+
+def _retrieval_entity_from_properties(value: Any) -> GraphEntityReference:
+    if not isinstance(value, dict):
+        raise GraphStoreError("Neo4j returned malformed retrieval entity")
+    payload = {key: item for key, item in value.items() if key in GraphEntityReference.model_fields}
+    try:
+        return GraphEntityReference.model_validate(payload)
+    except (TypeError, ValueError) as error:
+        raise GraphStoreError("Neo4j returned invalid retrieval entity") from error
+
+
+def _retrieval_canonical_from_properties(value: Any) -> GraphCanonicalReference | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise GraphStoreError("Neo4j returned malformed canonical bridge")
+    payload = {
+        key: item for key, item in value.items() if key in GraphCanonicalReference.model_fields
+    }
+    try:
+        return GraphCanonicalReference.model_validate(payload)
+    except (TypeError, ValueError) as error:
+        raise GraphStoreError("Neo4j returned invalid canonical bridge") from error
+
+
+def _retrieval_relation_from_properties(value: Any) -> GraphRelationReference | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise GraphStoreError("Neo4j returned malformed retrieval relation")
+    payload = {
+        key: item for key, item in value.items() if key in GraphRelationReference.model_fields
+    }
+    try:
+        return GraphRelationReference.model_validate(payload)
+    except (TypeError, ValueError) as error:
+        raise GraphStoreError("Neo4j returned invalid retrieval relation") from error
+
+
+def _retrieval_evidence_list(value: Any) -> list[GraphEvidence]:
+    if not isinstance(value, list):
+        raise GraphStoreError("Neo4j returned malformed retrieval evidence list")
+    by_id: dict[str, GraphEvidence] = {}
+    for raw_evidence in value:
+        evidence = _retrieval_evidence_from_properties(raw_evidence)
+        if evidence is None:
+            continue
+        previous = by_id.get(evidence.evidence_id)
+        if previous is not None and previous != evidence:
+            raise GraphStoreError("Neo4j returned conflicting retrieval evidence")
+        by_id[evidence.evidence_id] = evidence
+    return [by_id[key] for key in sorted(by_id)]
+
+
+def _retrieval_snapshot_from_record(record: Any) -> GraphEntitySnapshot:
+    entity = _retrieval_entity_from_properties(_record_value(record, "entity"))
+    canonical_values = _record_value(record, "canonical_values")
+    if not isinstance(canonical_values, list):
+        raise GraphStoreError("Neo4j returned malformed canonical bridge list")
+    canonical_entities = [
+        canonical
+        for raw_canonical in canonical_values
+        if (canonical := _retrieval_canonical_from_properties(raw_canonical)) is not None
+    ]
+    return GraphEntitySnapshot(
+        entity=entity,
+        evidence=_retrieval_evidence_list(_record_value(record, "evidence_values")),
+        canonical_entities=canonical_entities,
+    )
+
+
+def _retrieval_neighbor_from_record(record: Any) -> GraphNeighbor:
+    try:
+        return GraphNeighbor(
+            seed_entity_id=str(_record_value(record, "seed_entity_id")),
+            neighbor=_retrieval_entity_from_properties(_record_value(record, "neighbor")),
+            relation=_retrieval_relation_from_properties(_record_value(record, "relation")),
+            canonical=_retrieval_canonical_from_properties(_record_value(record, "canonical")),
+            direction=_record_value(record, "direction"),
+            evidence=_retrieval_evidence_list(_record_value(record, "evidence")),
+            neighbor_evidence=_retrieval_evidence_list(_record_value(record, "neighbor_evidence")),
+            relation_evidence=_retrieval_evidence_list(_record_value(record, "relation_evidence")),
+        )
+    except (TypeError, ValueError) as error:
+        raise GraphStoreError("Neo4j returned invalid graph retrieval edge") from error
 
 
 class Neo4jGraphStore:
@@ -1264,6 +1582,63 @@ class Neo4jGraphStore:
         def read(session: Any) -> GraphRelation | None:
             record = _single_or_none(session.run(_GET_RELATION_QUERY, relation_id=relation_id))
             return _relation_from_record(record) if record is not None else None
+
+        return self._read(read)
+
+    def list_retrieval_entities(
+        self,
+        knowledge_base_id: UUID,
+        *,
+        max_entities: int = 10_000,
+    ) -> tuple[GraphEntitySnapshot, ...]:
+        """Return a bounded local-entity snapshot for application-side resolution."""
+
+        if not 1 <= max_entities <= 100_000:
+            raise ValueError("max_entities must be between 1 and 100000")
+        params = {
+            "knowledge_base_id": str(knowledge_base_id),
+            "max_entities": max_entities,
+        }
+
+        def read(session: Any) -> tuple[GraphEntitySnapshot, ...]:
+            snapshots = [
+                _retrieval_snapshot_from_record(record)
+                for record in session.run(
+                    _LIST_RETRIEVAL_ENTITIES_QUERY,
+                    **params,
+                )
+            ]
+            return tuple(snapshots)
+
+        return self._read(read)
+
+    def get_retrieval_neighbors(
+        self,
+        knowledge_base_id: UUID,
+        entity_id: str,
+        *,
+        max_neighbors: int = 20,
+        max_relations: int = 100,
+    ) -> tuple[GraphNeighbor, ...]:
+        """Return one bounded directed/canonical expansion for a local entity."""
+
+        if not 1 <= max_neighbors <= 100:
+            raise ValueError("max_neighbors must be between 1 and 100")
+        if not 1 <= max_relations <= 1_000:
+            raise ValueError("max_relations must be between 1 and 1000")
+        params = {
+            "knowledge_base_id": str(knowledge_base_id),
+            "entity_id": entity_id,
+            "max_neighbors": max_neighbors,
+            "max_relations": max_relations,
+        }
+
+        def read(session: Any) -> tuple[GraphNeighbor, ...]:
+            neighbors = [
+                _retrieval_neighbor_from_record(record)
+                for record in session.run(_GET_RETRIEVAL_NEIGHBORS_QUERY, **params)
+            ]
+            return tuple(neighbors)
 
         return self._read(read)
 

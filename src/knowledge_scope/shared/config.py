@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     rag_rerank_limit: int = Field(default=5, ge=1, le=100)
     rag_context_budget_chars: int = Field(default=6_000, ge=1)
     rag_max_tokens: int = Field(default=512, ge=1)
+    graph_retrieval_max_seed_entities: int = Field(default=5, ge=1, le=50)
+    graph_retrieval_max_hops: int = Field(default=2, ge=1, le=2)
+    graph_retrieval_max_neighbors: int = Field(default=20, ge=1, le=100)
+    graph_retrieval_max_relations: int = Field(default=100, ge=1, le=1_000)
+    graph_retrieval_max_evidence: int = Field(default=50, ge=1, le=500)
+    graph_retrieval_max_entity_scan: int = Field(default=10_000, ge=1, le=100_000)
+    graph_retrieval_lexical_threshold: float = Field(default=0.78, ge=0.7, le=1)
 
 
 def get_settings() -> Settings:
