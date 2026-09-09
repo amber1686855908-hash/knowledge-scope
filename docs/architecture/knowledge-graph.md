@@ -1,8 +1,10 @@
 # A3.1 知识图谱 schema 与 Neo4j 基础设施
 
-Phase A3.1 只建立知识图谱的规范化数据模型和 Neo4j 存储边界。它不执行
+Phase A3.1 只建立知识图谱的规范化数据模型和 Neo4j 存储边界。A3.1 本身不执行
 LLM 实体/关系抽取，不做实体链接或归一化，也不改变 A2 的 dense retrieval、
-reranker、RAG 或 benchmark 结果。
+reranker、RAG 或 benchmark 结果。A3.2 的单 chunk 抽取通过独立的
+`knowledge_scope.extraction` 流程产生带来源的图对象，仍复用本页定义的 A3.1
+identity、provenance 和 Neo4j 写入边界。
 
 ## 规范化模型
 
@@ -122,7 +124,8 @@ uv run knowledgescope neo4j check
 uv run knowledgescope neo4j schema
 ```
 
-本阶段没有图查询 API、GraphRAG、混合检索、LLM 抽取、Neo4j 浏览器封装或前端
-图可视化。普通 pytest 不需要运行 Neo4j；设置
+本 A3.1 基础设施没有图查询 API、GraphRAG、混合检索、LLM 抽取编排、Neo4j 浏览器
+封装或前端图可视化。A3.2 的抽取入口和小样本说明见
+[A3.2 LLM 实体与关系抽取](graph-extraction.md)。普通 pytest 不需要运行 Neo4j；设置
 `KNOWLEDGE_SCOPE_RUN_NEO4J_INTEGRATION=1` 并提供本地连接配置后，才运行可选的
 真实 Neo4j 集成测试。

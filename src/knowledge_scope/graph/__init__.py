@@ -17,6 +17,7 @@ from .models import (
 from .neo4j import (
     GraphDeleteResult,
     GraphStoreError,
+    GraphUpsertResult,
     Neo4jGraphStore,
     Neo4jReadiness,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "GraphProvenance",
     "GraphRelation",
     "GraphStoreError",
+    "GraphUpsertResult",
     "Neo4jGraphStore",
     "Neo4jReadiness",
     "RelationId",

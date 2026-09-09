@@ -42,7 +42,9 @@ Phase A2.6 已完成 provider-independent 的 async LLM gateway 基础：`knowle
 
 Phase A2.7 已完成首个文本 RAG QA 编排：`POST /api/v1/rag/query` 复用 `Qwen/Qwen3-Embedding-0.6B`、Qdrant dense Top-10、显式 `BAAI/bge-reranker-v2-m3` 和 A2.6 LLM Gateway，通过 SSE 返回增量回答、应用生成的 citation metadata 及最终状态/usage。上下文按 reranker 顺序选择，抑制同一 lineage 下的精确重复文本，并受 `KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS` 字符预算限制；该预算只约束 chunk 文本字符数，不是 tokenizer-aware 的精确 LLM token context budget。无可用文本证据时受控返回证据不足，不调用 LLM；本地模型推理在共享 adapter 上串行化，当前不承诺 GPU 并发吞吐。请求 query 限制为 4,000 字符，当前接口适用于受信任的本地/内网开发环境，不应直接暴露公网。当前没有前端聊天页面、答案质量 benchmark 或后续 GraphRAG/Agent 能力；详见 [A2.7 RAG QA 说明](docs/architecture/rag-qa.md)。
 
-Phase A3.1 已完成 provider-independent 的知识图谱 schema 与 Neo4j 基础设施：`knowledge_scope.graph` 提供带来源校验的 `GraphEntity`、`GraphRelation` 和 `GraphProvenance`。实体/关系使用包含知识库、文档本地作用域的结构化 `entity_v2_*`、`relation_v2_*` ID；这只是抽取阶段的 provisional/local identity，不会按名称自动执行跨文档或跨知识库实体链接。`KnowledgeEvidence` 节点保存 `document_id`、页码、`chunk_id` 和 `source_block_ids` lineage，extraction provenance 保存在证据上下文中。`Neo4jGraphStore` 支持连接检查、显式 schema/index 初始化、实体/关系幂等 upsert、别名集合并集、按文档清理和基础查找；Neo4j 使用本地 Docker 服务，数据保存在 named volume。PostgreSQL、文件系统与 Neo4j 之间不是分布式原子事务，Neo4j 单库写入失败由事务回滚，跨系统恢复仍需上层补偿。当前不包含 LLM 实体/关系抽取、实体链接、GraphRAG、混合检索或前端图可视化；详见 [A3.1 知识图谱基础设施说明](docs/architecture/knowledge-graph.md)。
+Phase A3.1 已完成 provider-independent 的知识图谱 schema 与 Neo4j 基础设施：`knowledge_scope.graph` 提供带来源校验的 `GraphEntity`、`GraphRelation` 和 `GraphProvenance`。实体/关系使用包含知识库、文档本地作用域的结构化 `entity_v2_*`、`relation_v2_*` ID；这只是抽取阶段的 provisional/local identity，不会按名称自动执行跨文档或跨知识库实体链接。`KnowledgeEvidence` 节点保存 `document_id`、页码、`chunk_id` 和 `source_block_ids` lineage，extraction provenance 保存在证据上下文中。`Neo4jGraphStore` 支持连接检查、显式 schema/index 初始化、实体/关系幂等 upsert、别名集合并集、按文档清理和基础查找；Neo4j 使用本地 Docker 服务，数据保存在 named volume。PostgreSQL、文件系统与 Neo4j 之间不是分布式原子事务，Neo4j 单库写入失败由事务回滚，跨系统恢复仍需上层补偿。A3.1 本身不负责 LLM 实体/关系抽取、实体链接、GraphRAG、混合检索或前端图可视化；A3.2 的抽取能力见下文，基础设施说明见 [A3.1 知识图谱基础设施说明](docs/architecture/knowledge-graph.md)。
+
+Phase A3.2 已加入单 chunk 的 grounded LLM 实体/关系抽取基础：`knowledge_scope.extraction` 使用 A2.6 gateway、严格的 `graph-extraction-v1.3` 应用 JSON contract、保守 taxonomy、chunk 文本与 relation evidence grounding、应用侧 A3.1 ID/provenance 生成和单次 Neo4j managed transaction 持久化。`uv run knowledgescope graph-extraction-sample` 可从已有 A1.5 canonical artifacts 重新生成少量 A1.6 chunks，按 subject 做默认小样本运行；`--sample-offset` 可用于建立不重叠的开发/holdout 样本。输出写入被忽略的 `data/evaluation/a3-2/`，不保存完整语料或 LLM 原始响应，也不报告未完成人工核验的准确率。A3.2 不做跨文档实体链接、全语料抽取、GraphRAG 或前端图可视化；详见 [A3.2 LLM 实体与关系抽取说明](docs/architecture/graph-extraction.md) 和 [A3.2 小样本记录](docs/benchmarks/a3-2-graph-extraction.md)。
 
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
@@ -181,6 +183,14 @@ uv run knowledgescope llm-smoke-test --task-type evaluation
 ```
 
 该命令会将调用用量写入 PostgreSQL 的 `llm_usage_records`；未配置 `KNOWLEDGE_SCOPE_LLM_API_KEY` 时会受控失败。测试套件使用 mock/fake，不需要网络、API key 或付费模型。
+
+运行 A3.2 的少量分主题图抽取样本（不会重新运行 MinerU，也不会自动处理全部文档）：
+
+```bash
+uv run knowledgescope graph-extraction-sample
+```
+
+若需要把已验证的本次样本写入本地 Neo4j，显式追加 `--persist`；默认只生成被忽略的运行时 review 文件。抽取 taxonomy、grounding 和一致性边界见 [A3.2 LLM 实体与关系抽取说明](docs/architecture/graph-extraction.md)。
 
 运行 A2.7 RAG endpoint 还需要安装已有的本地 embedding/reranker 依赖：
 

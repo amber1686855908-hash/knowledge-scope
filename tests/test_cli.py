@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from knowledge_scope.chunking.models import ChunkedDocument
-from knowledge_scope.cli import main
+from knowledge_scope.cli import build_parser, main
 from knowledge_scope.graph.neo4j import Neo4jReadiness
 from knowledge_scope.parsing.mineru_adapter import AdapterStats
 from knowledge_scope.parsing.models import CanonicalDocument, Page, TextBlock
@@ -77,6 +77,15 @@ def test_neo4j_commands_report_readiness_and_schema(
     assert main(["neo4j", "schema"]) == 0
     schema_output = capsys.readouterr()
     assert '"schema_version": "1.0"' in schema_output.out
+
+
+def test_graph_extraction_sample_parser_has_explicit_runtime_defaults() -> None:
+    args = build_parser().parse_args(["graph-extraction-sample"])
+
+    assert args.sample_per_subject == 2
+    assert args.sample_offset == 0
+    assert args.persist is False
+    assert args.output == Path("data/evaluation/a3-2")
 
 
 def test_llm_smoke_test_fails_cleanly_without_api_key(

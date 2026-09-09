@@ -1,0 +1,53 @@
+"""Grounded LLM extraction from chunks into the A3.1 graph model."""
+
+from .models import (
+    ALLOWED_ENTITY_TYPES,
+    ALLOWED_RELATION_TYPES,
+    ENTITY_TYPE_DESCRIPTIONS,
+    RELATION_TYPE_DESCRIPTIONS,
+    EntityType,
+    ExtractedEntity,
+    ExtractedRelation,
+    ExtractionOutput,
+    RelationType,
+)
+from .service import (
+    ChunkExtractionResult,
+    ExtractionAttempt,
+    ExtractionAttemptCategory,
+    ExtractionError,
+    ExtractionGateway,
+    ExtractionParseError,
+    ExtractionPersistenceError,
+    ExtractionSchemaError,
+    ExtractionService,
+    ExtractionStats,
+    GroundedRelationEvidence,
+    GroundingRejectionReason,
+    parse_extraction_output,
+)
+
+__all__ = [
+    "ALLOWED_ENTITY_TYPES",
+    "ALLOWED_RELATION_TYPES",
+    "ENTITY_TYPE_DESCRIPTIONS",
+    "RELATION_TYPE_DESCRIPTIONS",
+    "ChunkExtractionResult",
+    "EntityType",
+    "ExtractedEntity",
+    "ExtractedRelation",
+    "ExtractionAttempt",
+    "ExtractionAttemptCategory",
+    "ExtractionError",
+    "ExtractionGateway",
+    "ExtractionOutput",
+    "ExtractionParseError",
+    "ExtractionPersistenceError",
+    "ExtractionSchemaError",
+    "ExtractionService",
+    "ExtractionStats",
+    "GroundedRelationEvidence",
+    "GroundingRejectionReason",
+    "RelationType",
+    "parse_extraction_output",
+]

@@ -54,6 +54,14 @@ class GraphDeleteResult:
     entity_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class GraphUpsertResult:
+    """Counts returned after one extraction batch transaction."""
+
+    entity_count: int
+    relation_count: int
+
+
 SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
     CREATE CONSTRAINT knowledgescope_entity_id_unique IF NOT EXISTS
@@ -261,6 +269,32 @@ def _provenance_parameters(values: Sequence[GraphProvenance]) -> list[dict[str, 
     ]
 
 
+def _entity_parameters(entity: GraphEntity) -> dict[str, Any]:
+    return {
+        "entity_id": entity.entity_id,
+        "schema_version": GRAPH_SCHEMA_VERSION,
+        "knowledge_base_id": str(entity.knowledge_base_id),
+        "document_id": str(entity.document_id),
+        "canonical_name": entity.canonical_name,
+        "entity_type": entity.entity_type,
+        "aliases": list(entity.aliases),
+        "provenance": _provenance_parameters(entity.provenance),
+    }
+
+
+def _relation_parameters(relation: GraphRelation) -> dict[str, Any]:
+    return {
+        "relation_id": relation.relation_id,
+        "source_entity_id": relation.source_entity_id,
+        "target_entity_id": relation.target_entity_id,
+        "schema_version": GRAPH_SCHEMA_VERSION,
+        "knowledge_base_id": str(relation.knowledge_base_id),
+        "document_id": str(relation.document_id),
+        "relation_type": relation.relation_type,
+        "provenance": _provenance_parameters(relation.provenance),
+    }
+
+
 def _provenance_from_properties(values: Any) -> list[GraphProvenance]:
     if not isinstance(values, list):
         return []
@@ -427,16 +461,7 @@ class Neo4jGraphStore:
         """MERGE one entity and its evidence, without creating provenance-free facts."""
 
         entity = self._validate_entity(entity)
-        params = {
-            "entity_id": entity.entity_id,
-            "schema_version": GRAPH_SCHEMA_VERSION,
-            "knowledge_base_id": str(entity.knowledge_base_id),
-            "document_id": str(entity.document_id),
-            "canonical_name": entity.canonical_name,
-            "entity_type": entity.entity_type,
-            "aliases": list(entity.aliases),
-            "provenance": _provenance_parameters(entity.provenance),
-        }
+        params = _entity_parameters(entity)
 
         def write(tx: Any) -> GraphEntity:
             record = _single_or_none(tx.run(_UPSERT_ENTITY_QUERY, **params))
@@ -451,16 +476,7 @@ class Neo4jGraphStore:
         """MERGE one directed relation and require both endpoint entities first."""
 
         relation = self._validate_relation(relation)
-        params = {
-            "relation_id": relation.relation_id,
-            "source_entity_id": relation.source_entity_id,
-            "target_entity_id": relation.target_entity_id,
-            "schema_version": GRAPH_SCHEMA_VERSION,
-            "knowledge_base_id": str(relation.knowledge_base_id),
-            "document_id": str(relation.document_id),
-            "relation_type": relation.relation_type,
-            "provenance": _provenance_parameters(relation.provenance),
-        }
+        params = _relation_parameters(relation)
 
         def write(tx: Any) -> GraphRelation:
             record = _single_or_none(tx.run(_UPSERT_RELATION_QUERY, **params))
@@ -468,6 +484,41 @@ class Neo4jGraphStore:
                 raise GraphStoreError("relation endpoints must be upserted before the relation")
             tx.run(_UPSERT_RELATION_EVIDENCE_QUERY, **params).consume()
             return relation
+
+        return self._write(write)
+
+    def upsert_extraction(
+        self,
+        entities: Sequence[GraphEntity],
+        relations: Sequence[GraphRelation],
+    ) -> GraphUpsertResult:
+        """Upsert one validated chunk extraction in one managed Neo4j transaction.
+
+        All objects are validated before opening a session.  Neo4j rolls back the
+        complete managed transaction if an endpoint or any write fails, so a
+        chunk cannot be left half-written by this method.
+        """
+
+        validated_entities = tuple(self._validate_entity(entity) for entity in entities)
+        validated_relations = tuple(self._validate_relation(relation) for relation in relations)
+        entity_params = tuple(_entity_parameters(entity) for entity in validated_entities)
+        relation_params = tuple(_relation_parameters(relation) for relation in validated_relations)
+
+        def write(tx: Any) -> GraphUpsertResult:
+            for params in entity_params:
+                record = _single_or_none(tx.run(_UPSERT_ENTITY_QUERY, **params))
+                if record is None:
+                    raise GraphStoreError("Neo4j did not create the entity")
+                tx.run(_UPSERT_ENTITY_EVIDENCE_QUERY, **params).consume()
+            for params in relation_params:
+                record = _single_or_none(tx.run(_UPSERT_RELATION_QUERY, **params))
+                if record is None:
+                    raise GraphStoreError("relation endpoints must be upserted before the relation")
+                tx.run(_UPSERT_RELATION_EVIDENCE_QUERY, **params).consume()
+            return GraphUpsertResult(
+                entity_count=len(entity_params),
+                relation_count=len(relation_params),
+            )
 
         return self._write(write)
 
@@ -526,6 +577,7 @@ __all__ = [
     "SCHEMA_STATEMENTS",
     "GraphDeleteResult",
     "GraphStoreError",
+    "GraphUpsertResult",
     "Neo4jGraphStore",
     "Neo4jReadiness",
 ]
