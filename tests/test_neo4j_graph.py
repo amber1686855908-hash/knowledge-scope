@@ -79,6 +79,9 @@ def _entity(
 class _Result:
     records: list[dict[str, object]]
 
+    def __iter__(self):
+        return iter(self.records)
+
     def single(self) -> dict[str, object] | None:
         return self.records[0] if self.records else None
 
@@ -123,13 +126,16 @@ class _SpySession:
         self.driver.queries.append((query, params))
         if query == "RETURN 1 AS ok":
             return _Result([{"ok": 1}])
+        if "entity.entity_type_normalized IS NULL" in query:
+            return _Result(self.driver.legacy_entity_records)
         return _Result([])
 
 
 class _SpyDriver:
-    def __init__(self) -> None:
+    def __init__(self, legacy_entity_records: list[dict[str, object]] | None = None) -> None:
         self.queries: list[tuple[str, dict[str, object]]] = []
         self.entity_ids: set[str] = set()
+        self.legacy_entity_records = legacy_entity_records or []
         self.write_calls = 0
         self.closed = False
 
@@ -164,6 +170,25 @@ def test_readiness_and_schema_are_explicit_and_non_sensitive() -> None:
     assert len([query for query, _ in driver.queries if query in SCHEMA_STATEMENTS]) == len(
         SCHEMA_STATEMENTS
     )
+
+
+@pytest.mark.parametrize("legacy_entity_type", [None, "", "   ", 123])
+def test_schema_rejects_invalid_legacy_entity_types_before_backfill(
+    legacy_entity_type: object,
+) -> None:
+    driver = _SpyDriver(
+        legacy_entity_records=[
+            {
+                "entity_id": "entity_v2_" + "0" * 64,
+                "entity_type": legacy_entity_type,
+            }
+        ]
+    )
+
+    with pytest.raises(GraphStoreError, match="entity_type"):
+        _store(driver).ensure_schema()
+
+    assert not any("SET entity.entity_type_normalized" in query for query, _ in driver.queries)
 
 
 def test_entity_and_relation_upserts_use_scoped_merges_and_evidence() -> None:

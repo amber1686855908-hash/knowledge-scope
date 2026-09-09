@@ -15,7 +15,10 @@ from .models import (
     relation_id_for,
 )
 from .neo4j import (
+    NEO4J_LINK_PAIR_LABEL,
     GraphDeleteResult,
+    GraphLinkDeleteResult,
+    GraphLinkUpsertResult,
     GraphStoreError,
     GraphUpsertResult,
     Neo4jGraphStore,
@@ -25,10 +28,13 @@ from .neo4j import (
 __all__ = [
     "GRAPH_ID_VERSION",
     "GRAPH_SCHEMA_VERSION",
+    "NEO4J_LINK_PAIR_LABEL",
     "EntityId",
     "ExtractionProvenance",
     "GraphDeleteResult",
     "GraphEntity",
+    "GraphLinkDeleteResult",
+    "GraphLinkUpsertResult",
     "GraphProvenance",
     "GraphRelation",
     "GraphStoreError",

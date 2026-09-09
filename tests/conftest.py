@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from knowledge_scope.api.app import create_app
+from knowledge_scope.graph.neo4j import GraphDeleteResult, Neo4jReadiness
 from knowledge_scope.retrieval.qdrant import QdrantReadiness
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import get_session
@@ -43,6 +44,30 @@ class _TestVectorStore:
 
     def delete_document(self, _document_id: object) -> int:
         return 0
+
+    def close(self) -> None:
+        return None
+
+
+class _TestGraphStore:
+    """Keep document API tests independent from a running Neo4j service."""
+
+    def readiness(self) -> Neo4jReadiness:
+        return Neo4jReadiness(status="ready", database="neo4j")
+
+    def delete_document(
+        self,
+        document_id: object,
+        *,
+        knowledge_base_id: object | None = None,
+    ) -> GraphDeleteResult:
+        assert knowledge_base_id is not None
+        return GraphDeleteResult(
+            document_id=document_id,  # type: ignore[arg-type]
+            evidence_count=0,
+            relation_count=0,
+            entity_count=0,
+        )
 
     def close(self) -> None:
         return None
@@ -149,6 +174,7 @@ async def _test_client(
         settings,
         database_engine=postgres_test_engine,
         vector_store=_TestVectorStore(),
+        graph_store=_TestGraphStore(),  # type: ignore[arg-type]
     )
 
     async with postgres_test_engine.connect() as connection:
