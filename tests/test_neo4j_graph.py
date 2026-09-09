@@ -18,12 +18,14 @@ from knowledge_scope.graph.models import (
 from knowledge_scope.graph.neo4j import (
     SCHEMA_STATEMENTS,
     GraphStoreError,
+    GraphUpsertResult,
     Neo4jGraphStore,
 )
 from knowledge_scope.shared.config import Settings
 
 DOCUMENT_ID = UUID("11111111-1111-4111-8111-111111111111")
 OTHER_DOCUMENT_ID = UUID("22222222-2222-4222-8222-222222222222")
+BATCH_DOCUMENT_ID = UUID("55555555-5555-4555-8555-555555555555")
 KNOWLEDGE_BASE_ID = UUID("33333333-3333-4333-8333-333333333333")
 OTHER_KNOWLEDGE_BASE_ID = UUID("44444444-4444-4444-8444-444444444444")
 
@@ -114,6 +116,7 @@ class _SpySession:
         return None
 
     def execute_write(self, work):
+        self.driver.write_calls += 1
         return work(_SpyTransaction(self.driver))
 
     def run(self, query: str, **params: object) -> _Result:
@@ -127,6 +130,7 @@ class _SpyDriver:
     def __init__(self) -> None:
         self.queries: list[tuple[str, dict[str, object]]] = []
         self.entity_ids: set[str] = set()
+        self.write_calls = 0
         self.closed = False
 
     def session(self, *, database: str) -> _SpySession:
@@ -235,6 +239,43 @@ def test_upserts_revalidate_mutable_models_at_store_boundary() -> None:
     assert driver.queries == []
 
 
+def test_extraction_batch_uses_one_transaction_for_entities_and_relations() -> None:
+    driver = _SpyDriver()
+    store = _store(driver)
+    source = _entity("水")
+    target = _entity("氢")
+    relation = GraphRelation(
+        relation_id=relation_id_for(
+            source.entity_id,
+            target.entity_id,
+            "组成",
+            knowledge_base_id=KNOWLEDGE_BASE_ID,
+            document_id=DOCUMENT_ID,
+        ),
+        knowledge_base_id=KNOWLEDGE_BASE_ID,
+        document_id=DOCUMENT_ID,
+        source_entity_id=source.entity_id,
+        target_entity_id=target.entity_id,
+        relation_type="组成",
+        provenance=[_provenance()],
+    )
+
+    result = store.upsert_extraction([source, target], [relation])
+
+    assert result == GraphUpsertResult(entity_count=2, relation_count=1)
+    assert driver.write_calls == 1
+    assert sum("MERGE (entity:KnowledgeEntity" in query for query, _ in driver.queries) == 2
+    assert sum("MERGE (relation:KnowledgeRelation" in query for query, _ in driver.queries) == 1
+
+    driver.write_calls = 0
+    driver.queries.clear()
+    relation.provenance.clear()
+    with pytest.raises(GraphStoreError, match="canonical validation"):
+        store.upsert_extraction([source, target], [relation])
+    assert driver.write_calls == 0
+    assert driver.queries == []
+
+
 def test_missing_password_is_a_controlled_non_sensitive_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -244,6 +285,75 @@ def test_missing_password_is_a_controlled_non_sensitive_failure(
     readiness = store.readiness()
     assert readiness.status == "unavailable"
     assert readiness.error == "Neo4j is not reachable"
+
+
+@pytest.mark.integration
+def test_real_neo4j_extraction_batch_is_idempotent_and_atomic() -> None:
+    """Verify the A3.2 batch boundary when an opt-in local Neo4j is available."""
+
+    pytest.importorskip("neo4j")
+    if os.environ.get("KNOWLEDGE_SCOPE_RUN_NEO4J_INTEGRATION") != "1":
+        pytest.skip("set KNOWLEDGE_SCOPE_RUN_NEO4J_INTEGRATION=1 to run Neo4j integration")
+
+    from knowledge_scope.shared.config import get_settings
+
+    settings = get_settings()
+    if settings.neo4j_password is None or not settings.neo4j_password.get_secret_value():
+        pytest.skip("configure KNOWLEDGE_SCOPE_NEO4J_PASSWORD for Neo4j integration")
+
+    store = Neo4jGraphStore(settings)
+    source = _entity("批量源", document_id=BATCH_DOCUMENT_ID)
+    target = _entity("批量目标", document_id=BATCH_DOCUMENT_ID)
+    provenance = _provenance(BATCH_DOCUMENT_ID, chunk_id="batch-chunk")
+    relation = GraphRelation(
+        relation_id=relation_id_for(
+            source.entity_id,
+            target.entity_id,
+            "组成",
+            knowledge_base_id=KNOWLEDGE_BASE_ID,
+            document_id=BATCH_DOCUMENT_ID,
+        ),
+        knowledge_base_id=KNOWLEDGE_BASE_ID,
+        document_id=BATCH_DOCUMENT_ID,
+        source_entity_id=source.entity_id,
+        target_entity_id=target.entity_id,
+        relation_type="组成",
+        provenance=[provenance],
+    )
+    failing_source = _entity("失败源", document_id=BATCH_DOCUMENT_ID)
+    missing_target = _entity("缺失目标", document_id=BATCH_DOCUMENT_ID)
+    failing_relation = GraphRelation(
+        relation_id=relation_id_for(
+            failing_source.entity_id,
+            missing_target.entity_id,
+            "组成",
+            knowledge_base_id=KNOWLEDGE_BASE_ID,
+            document_id=BATCH_DOCUMENT_ID,
+        ),
+        knowledge_base_id=KNOWLEDGE_BASE_ID,
+        document_id=BATCH_DOCUMENT_ID,
+        source_entity_id=failing_source.entity_id,
+        target_entity_id=missing_target.entity_id,
+        relation_type="组成",
+        provenance=[provenance],
+    )
+    try:
+        store.ensure_schema()
+        store.delete_document(BATCH_DOCUMENT_ID)
+        assert store.upsert_extraction([source, target], [relation]) == GraphUpsertResult(
+            entity_count=2,
+            relation_count=1,
+        )
+        store.upsert_extraction([source, target], [relation])
+        assert store.get_entity(source.entity_id) is not None
+        assert store.get_relation(relation.relation_id) is not None
+
+        with pytest.raises(GraphStoreError, match="endpoints"):
+            store.upsert_extraction([failing_source], [failing_relation])
+        assert store.get_entity(failing_source.entity_id) is None
+    finally:
+        store.delete_document(BATCH_DOCUMENT_ID)
+        store.close()
 
 
 def test_driver_failures_are_normalized_without_provider_details() -> None:

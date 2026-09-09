@@ -159,6 +159,10 @@ class DeepSeekProvider:
             payload["temperature"] = request.temperature
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
+        if request.response_format is not None:
+            payload["response_format"] = request.response_format.model_dump(mode="json")
+        if request.reasoning is not None:
+            payload["thinking"] = {"type": request.reasoning}
         if stream:
             payload["stream_options"] = {"include_usage": True}
         return payload

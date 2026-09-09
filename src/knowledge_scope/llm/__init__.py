@@ -5,6 +5,7 @@ from knowledge_scope.llm.providers import DeepSeekProvider, create_llm_provider
 from knowledge_scope.llm.schemas import (
     LLMMessage,
     LLMRequest,
+    LLMResponseFormat,
     LLMResult,
     LLMStreamEvent,
     LLMTaskType,
@@ -15,6 +16,7 @@ __all__ = [
     "LLMGateway",
     "LLMMessage",
     "LLMRequest",
+    "LLMResponseFormat",
     "LLMResult",
     "LLMStreamEvent",
     "LLMTaskType",

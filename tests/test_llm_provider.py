@@ -8,7 +8,7 @@ from pydantic import SecretStr
 
 from knowledge_scope.llm.errors import LLMConfigurationError, LLMProviderError
 from knowledge_scope.llm.providers import DeepSeekProvider
-from knowledge_scope.llm.schemas import LLMMessage, LLMRequest
+from knowledge_scope.llm.schemas import LLMMessage, LLMRequest, LLMResponseFormat
 from knowledge_scope.shared.config import Settings
 
 
@@ -26,6 +26,20 @@ def _request() -> LLMRequest:
 
 def _settings() -> Settings:
     return Settings(_env_file=None, llm_api_key=SecretStr("test-secret"))
+
+
+def test_provider_payload_supports_json_mode_and_reasoning_control() -> None:
+    request = _request().model_copy(
+        update={
+            "response_format": LLMResponseFormat(type="json_object"),
+            "reasoning": "disabled",
+        }
+    )
+
+    payload = DeepSeekProvider._payload(request, "configured-model", stream=False)
+
+    assert payload["response_format"] == {"type": "json_object"}
+    assert payload["thinking"] == {"type": "disabled"}
 
 
 @pytest.mark.anyio

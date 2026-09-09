@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 LLMMessageRole = Literal["system", "user"]
+LLMReasoningMode = Literal["enabled", "disabled"]
 LLMTaskType = Literal[
     "rag_answer",
     "graph_extraction",
@@ -49,6 +50,12 @@ class LLMMessage(_StrictModel):
         return _non_empty(value)
 
 
+class LLMResponseFormat(_StrictModel):
+    """A provider-independent request for an OpenAI-compatible JSON object."""
+
+    type: Literal["json_object"]
+
+
 class LLMRequest(_StrictModel):
     """Normalized input for one logical LLM request."""
 
@@ -57,6 +64,8 @@ class LLMRequest(_StrictModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_tokens: int | None = Field(default=None, ge=1)
     model: str | None = Field(default=None, min_length=1)
+    response_format: LLMResponseFormat | None = None
+    reasoning: LLMReasoningMode | None = None
 
     @field_validator("model")
     @classmethod

@@ -26,6 +26,20 @@ from knowledge_scope.evaluation.embedding_benchmark import (
     EmbeddingBenchmarkProtocol,
     run_embedding_benchmark,
 )
+from knowledge_scope.evaluation.graph_extraction_sample import (
+    DEFAULT_CANONICAL_ROOT as DEFAULT_EXTRACTION_CANONICAL_ROOT,
+)
+from knowledge_scope.evaluation.graph_extraction_sample import (
+    DEFAULT_CORPUS_MANIFEST as DEFAULT_EXTRACTION_CORPUS_MANIFEST,
+)
+from knowledge_scope.evaluation.graph_extraction_sample import (
+    DEFAULT_OUTPUT as DEFAULT_EXTRACTION_OUTPUT,
+)
+from knowledge_scope.evaluation.graph_extraction_sample import (
+    DEFAULT_SAMPLE_KNOWLEDGE_BASE_ID,
+    run_sample_evaluation,
+    select_sample_chunks,
+)
 from knowledge_scope.evaluation.parsing_benchmark import (
     RAW_RETENTION_VALUES,
     BenchmarkConfig,
@@ -58,6 +72,7 @@ from knowledge_scope.evaluation.retrieval_system_benchmark import (
     RetrievalSystemBenchmarkError,
     run_retrieval_system_benchmark,
 )
+from knowledge_scope.extraction.service import ExtractionError
 from knowledge_scope.graph.neo4j import GraphStoreError, Neo4jGraphStore
 from knowledge_scope.llm import LLMGateway, LLMMessage, LLMRequest, LLMResult, create_llm_provider
 from knowledge_scope.llm.errors import LLMError
@@ -428,6 +443,49 @@ def build_parser() -> argparse.ArgumentParser:
     neo4j_actions = neo4j.add_subparsers(dest="neo4j_action", required=True)
     neo4j_actions.add_parser("check", help="check Neo4j connectivity")
     neo4j_actions.add_parser("schema", help="create or validate graph constraints and indexes")
+
+    graph_extraction = subparsers.add_parser(
+        "graph-extraction-sample",
+        help="extract a small stratified chunk sample into the A3.1 graph model",
+    )
+    graph_extraction.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=DEFAULT_EXTRACTION_CANONICAL_ROOT,
+    )
+    graph_extraction.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=DEFAULT_EXTRACTION_CORPUS_MANIFEST,
+    )
+    graph_extraction.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_EXTRACTION_OUTPUT,
+        help="ignored runtime sample and summary output directory",
+    )
+    graph_extraction.add_argument(
+        "--sample-per-subject",
+        type=_positive_int,
+        default=2,
+        help="number of canonical documents sampled for each subject",
+    )
+    graph_extraction.add_argument(
+        "--sample-offset",
+        type=int,
+        default=0,
+        help="skip this many eligible chunks within each subject before sampling",
+    )
+    graph_extraction.add_argument(
+        "--knowledge-base-id",
+        type=UUID,
+        default=DEFAULT_SAMPLE_KNOWLEDGE_BASE_ID,
+    )
+    graph_extraction.add_argument(
+        "--persist",
+        action="store_true",
+        help="persist the validated sample through the local Neo4j adapter",
+    )
 
     rerank_search = subparsers.add_parser(
         "rerank-search",
@@ -956,6 +1014,67 @@ def _run_neo4j(args: argparse.Namespace) -> int:
     return 1
 
 
+async def _run_graph_extraction_sample_async(args: argparse.Namespace) -> dict[str, object]:
+    """Run the explicit, small A3.2 sample workflow and close its resources."""
+
+    settings = get_settings()
+    samples = select_sample_chunks(
+        args.canonical_root,
+        args.corpus_manifest,
+        sample_per_subject=args.sample_per_subject,
+        sample_offset=args.sample_offset,
+    )
+    engine = create_database_engine(settings)
+    provider = create_llm_provider(settings)
+    store = Neo4jGraphStore(settings) if args.persist else None
+    try:
+        if store is not None:
+            await asyncio.to_thread(store.ensure_schema)
+        gateway = LLMGateway(
+            provider,
+            DatabaseUsageRecorder(create_session_factory(engine)),
+            settings,
+        )
+        return await run_sample_evaluation(
+            samples,
+            gateway=gateway,
+            settings=settings,
+            output_dir=args.output,
+            knowledge_base_id=args.knowledge_base_id,
+            store=store,
+        )
+    finally:
+        if store is not None:
+            store.close()
+        await provider.aclose()
+        await engine.dispose()
+
+
+def _run_graph_extraction_sample(args: argparse.Namespace) -> int:
+    """Run the developer-only A3.2 extraction sample without exposing secrets."""
+
+    try:
+        summary = asyncio.run(_run_graph_extraction_sample_async(args))
+    except (
+        ExtractionError,
+        GraphStoreError,
+        LLMError,
+        RetrievalEvalError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        print("graph_extraction_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("graph_extraction_status: interrupted", file=sys.stderr)
+        return 130
+
+    print("graph_extraction_status: complete")
+    print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     parser = build_parser()
@@ -983,6 +1102,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_qdrant(args)
     if args.command == "neo4j":
         return _run_neo4j(args)
+    if args.command == "graph-extraction-sample":
+        return _run_graph_extraction_sample(args)
     if args.command == "rerank-search":
         return _run_rerank_search(args)
 
