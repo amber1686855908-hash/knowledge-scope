@@ -37,6 +37,10 @@ data/benchmarks/a2-4/
 data/evaluation/a2-5/
 data/benchmarks/a2-5/
 
+# Local A3.3 entity-linking review records and measurements
+data/evaluation/a3-3/
+data/benchmarks/a3-3/
+
 # IDE settings
 .idea/
 .vscode/

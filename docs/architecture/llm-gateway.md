@@ -4,7 +4,7 @@ KnowledgeScope 当前提供一个小型、provider-independent 的 async LLM gat
 
 ## 当前实现
 
-- `knowledge_scope.llm.schemas` 定义严格的 `LLMRequest`、`LLMMessage`、`LLMResult`、`LLMStreamEvent` 和 `LLMUsageRecordInput`。消息角色目前为 `system` 或 `user`，任务标签为 `rag_answer`、`graph_extraction`、`report_generation`、`agent` 和 `evaluation`。
+- `knowledge_scope.llm.schemas` 定义严格的 `LLMRequest`、`LLMMessage`、`LLMResult`、`LLMStreamEvent` 和 `LLMUsageRecordInput`。消息角色目前为 `system` 或 `user`，任务标签为 `rag_answer`、`graph_extraction`、`entity_linking`、`report_generation`、`agent` 和 `evaluation`。
 - `LLMGateway` 接收注入的 provider 和 usage recorder，支持普通 completion 与 streaming。completion 结果统一包含 `text`、`provider`、`model`、token 用量、毫秒延迟和可用的 `finish_reason`。
 - `DeepSeekProvider` 通过 OpenAI-compatible `/chat/completions` 接口工作。`base URL`、API key、model、timeout 和 retry 上限全部来自 `Settings`；API key 使用 `SecretStr`，不会写入异常消息、usage 记录或 CLI 输出。
 - 网络 timeout、连接失败、HTTP API 错误、响应结构错误和取消会转换为稳定的错误类别。默认不重试；仅显式配置的 `KNOWLEDGE_SCOPE_LLM_MAX_RETRIES` 会对 timeout、连接错误、429 和 5xx 做有限重试。streaming 不自动重试，以避免部分输出后重复内容。重试不是 exactly-once：timeout 等情况下 provider 可能已经完成工作，重试可能重复 provider-side work/cost；usage 记录按一次逻辑调用保存，不能替代 provider 端的 attempt 或账单明细。

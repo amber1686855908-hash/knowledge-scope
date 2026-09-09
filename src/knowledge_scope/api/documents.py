@@ -43,6 +43,7 @@ from knowledge_scope.documents.storage import (
     stage_pdf,
     storage_key_for_document,
 )
+from knowledge_scope.graph.neo4j import GraphStoreError
 from knowledge_scope.parsing.service import PARSING_DIRECTORY_NAME
 from knowledge_scope.retrieval.qdrant import VectorStoreError
 from knowledge_scope.shared.config import Settings
@@ -93,6 +94,25 @@ async def _delete_document_vectors(request: Request, document_id: UUID) -> None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="文档已删除, 但向量清理失败",
+        ) from None
+
+
+async def _delete_document_graph(
+    request: Request,
+    knowledge_base_id: UUID,
+    document_id: UUID,
+) -> None:
+    """Clean graph state without blocking the FastAPI event loop."""
+    try:
+        await asyncio.to_thread(
+            request.app.state.graph_store.delete_document,
+            document_id,
+            knowledge_base_id=knowledge_base_id,
+        )
+    except GraphStoreError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="文档已删除, 但知识图谱清理失败",
         ) from None
 
 
@@ -291,6 +311,8 @@ async def delete_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="文档删除失败",
         ) from None
+
+    await _delete_document_graph(request, knowledge_base_id, document.id)
 
     cleanup_failed = False
     for resource in (trashed_chunking, trashed_parsing, trashed_source):

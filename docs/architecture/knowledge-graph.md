@@ -86,6 +86,10 @@ PDF。
 - `KnowledgeEvidence.evidence_id` 唯一约束；
 - entity type、relation type 和 evidence document ID 的查询索引。
 
+该命令也兼容 A3.1 的旧 `KnowledgeEntity` 节点：对缺少
+`entity_type_normalized` 的节点按应用的 `normalize_linking_label()` 回填。回填不会覆盖已有
+值，重复运行安全；空白、非字符串等无效旧类型会明确失败。完成后 A3.3 只依赖规范化字段。
+
 schema version 当前为 `1.0`，保存在 readiness 和图节点属性中。readiness
 执行安全的 `RETURN 1` 连接检查；它不会隐式创建 schema。
 
@@ -109,8 +113,9 @@ schema version 当前为 `1.0`，保存在 readiness 和图节点属性中。rea
 
 PostgreSQL、原始文件系统和 Neo4j 不构成分布式事务。A3.1 没有声称跨系统
 atomic；如果未来文档状态变更和图写入分属不同系统，必须由上层编排补偿、重试
-或 reconciliation。当前没有自动图抽取，因此文档上传/删除 API 尚未自动写入
-或清理图事实。
+或 reconciliation。当前没有自动图抽取，因此文档上传 API 不会自动写入图事实；文档删除
+API 会在可用的 A3.3 scoped graph store 中清理对应 linking/local graph state，跨系统失败
+仍需补偿或重试。
 
 ## 开发者入口与边界
 

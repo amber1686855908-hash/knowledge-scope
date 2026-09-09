@@ -26,6 +26,15 @@ from knowledge_scope.evaluation.embedding_benchmark import (
     EmbeddingBenchmarkProtocol,
     run_embedding_benchmark,
 )
+from knowledge_scope.evaluation.entity_linking_sample import (
+    DEFAULT_INPUT as DEFAULT_LINKING_INPUT,
+)
+from knowledge_scope.evaluation.entity_linking_sample import (
+    DEFAULT_OUTPUT as DEFAULT_LINKING_OUTPUT,
+)
+from knowledge_scope.evaluation.entity_linking_sample import (
+    run_linking_review_sample,
+)
 from knowledge_scope.evaluation.graph_extraction_sample import (
     DEFAULT_CANONICAL_ROOT as DEFAULT_EXTRACTION_CANONICAL_ROOT,
 )
@@ -74,6 +83,7 @@ from knowledge_scope.evaluation.retrieval_system_benchmark import (
 )
 from knowledge_scope.extraction.service import ExtractionError
 from knowledge_scope.graph.neo4j import GraphStoreError, Neo4jGraphStore
+from knowledge_scope.linking.service import LinkingValidationError
 from knowledge_scope.llm import LLMGateway, LLMMessage, LLMRequest, LLMResult, create_llm_provider
 from knowledge_scope.llm.errors import LLMError
 from knowledge_scope.llm.schemas import LLM_TASK_TYPES
@@ -485,6 +495,46 @@ def build_parser() -> argparse.ArgumentParser:
         "--persist",
         action="store_true",
         help="persist the validated sample through the local Neo4j adapter",
+    )
+
+    entity_linking = subparsers.add_parser(
+        "entity-linking-sample",
+        help="review a small explicit local-entity linking sample",
+    )
+    entity_linking.add_argument(
+        "--input",
+        type=Path,
+        nargs="+",
+        default=list(DEFAULT_LINKING_INPUT),
+        help="ignored A3.2 accepted-extraction JSONL file(s)",
+    )
+    entity_linking.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_LINKING_OUTPUT,
+        help="ignored runtime review output directory",
+    )
+    entity_linking.add_argument(
+        "--max-candidates",
+        type=_positive_int,
+        default=200,
+        help="maximum deterministic candidates retained in the review sample",
+    )
+    entity_linking.add_argument(
+        "--max-block-size",
+        type=_positive_int,
+        default=64,
+        help="skip generic exact/prefix blocks larger than this size",
+    )
+    entity_linking.add_argument(
+        "--adjudicate",
+        action="store_true",
+        help="use the configured LLM only for ambiguous candidates",
+    )
+    entity_linking.add_argument(
+        "--persist",
+        action="store_true",
+        help="persist this explicit sample through the local Neo4j adapter",
     )
 
     rerank_search = subparsers.add_parser(
@@ -1075,6 +1125,70 @@ def _run_graph_extraction_sample(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run_entity_linking_sample_async(args: argparse.Namespace) -> dict[str, object]:
+    """Run the bounded A3.3 sample and close optional provider/database resources."""
+
+    settings = get_settings()
+    provider = None
+    engine = None
+    store = None
+    gateway = None
+    if args.adjudicate:
+        if settings.llm_api_key is None or not settings.llm_api_key.get_secret_value().strip():
+            raise ValueError("KNOWLEDGE_SCOPE_LLM_API_KEY is required with --adjudicate")
+        engine = create_database_engine(settings)
+        provider = create_llm_provider(settings)
+        gateway = LLMGateway(
+            provider,
+            DatabaseUsageRecorder(create_session_factory(engine)),
+            settings,
+        )
+    if args.persist:
+        store = Neo4jGraphStore(settings)
+        await asyncio.to_thread(store.ensure_schema)
+    try:
+        return await run_linking_review_sample(
+            args.input,
+            settings=settings,
+            output_dir=args.output,
+            gateway=gateway,
+            store=store,
+            max_candidates=args.max_candidates,
+            max_block_size=args.max_block_size,
+        )
+    finally:
+        if store is not None:
+            store.close()
+        if provider is not None:
+            await provider.aclose()
+        if engine is not None:
+            await engine.dispose()
+
+
+def _run_entity_linking_sample(args: argparse.Namespace) -> int:
+    """Run the developer-only A3.3 linking sample without exposing secrets."""
+
+    try:
+        summary = asyncio.run(_run_entity_linking_sample_async(args))
+    except (
+        GraphStoreError,
+        LLMError,
+        LinkingValidationError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        print("entity_linking_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("entity_linking_status: interrupted", file=sys.stderr)
+        return 130
+
+    print("entity_linking_status: complete")
+    print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     parser = build_parser()
@@ -1104,6 +1218,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_neo4j(args)
     if args.command == "graph-extraction-sample":
         return _run_graph_extraction_sample(args)
+    if args.command == "entity-linking-sample":
+        return _run_entity_linking_sample(args)
     if args.command == "rerank-search":
         return _run_rerank_search(args)
 

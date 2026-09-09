@@ -46,6 +46,8 @@ Phase A3.1 已完成 provider-independent 的知识图谱 schema 与 Neo4j 基�
 
 Phase A3.2 已加入单 chunk 的 grounded LLM 实体/关系抽取基础：`knowledge_scope.extraction` 使用 A2.6 gateway、严格的 `graph-extraction-v1.3` 应用 JSON contract、保守 taxonomy、chunk 文本与 relation evidence grounding、应用侧 A3.1 ID/provenance 生成和单次 Neo4j managed transaction 持久化。`uv run knowledgescope graph-extraction-sample` 可从已有 A1.5 canonical artifacts 重新生成少量 A1.6 chunks，按 subject 做默认小样本运行；`--sample-offset` 可用于建立不重叠的开发/holdout 样本。输出写入被忽略的 `data/evaluation/a3-2/`，不保存完整语料或 LLM 原始响应，也不报告未完成人工核验的准确率。A3.2 不做跨文档实体链接、全语料抽取、GraphRAG 或前端图可视化；详见 [A3.2 LLM 实体与关系抽取说明](docs/architecture/graph-extraction.md) 和 [A3.2 小样本记录](docs/benchmarks/a3-2-graph-extraction.md)。
 
+Phase A3.3 当前提供显式的 local entity linking 基础：`knowledge_scope.linking` 从已有 A3.2 accepted extraction 生成同一知识库内的保守候选；确定性规则只拒绝明显不兼容或无共享信号的候选，其余候选保持 `UNCERTAIN`，可显式交给现有 LLM Gateway，最终只生成 `LINK`、`NO_LINK` 或 `UNCERTAIN` 决策。`CanonicalEntity` 使用创建后保持不变的 opaque lifecycle ID，与 A3.1 的 document-scoped `GraphEntity` 分开保存；local→canonical membership 可撤销，current decision 与历史决策分开记录，别名使用集合并集；不执行跨知识库链接、破坏性合并、全量链接或图检索。`uv run knowledgescope entity-linking-sample` 可生成被忽略的 bounded review pack；默认不调用 LLM，显式追加 `--adjudicate` 才使用已配置的 provider，追加 `--persist` 才写入本地 Neo4j。文档删除会通过 scoped graph cleanup 清理 A3.3 linking state；该样本只支持人工审核，不报告 precision、recall 或 accuracy；详见 [A3.3 实体链接说明](docs/architecture/entity-linking.md) 和 [A3.3 小样本记录](docs/benchmarks/a3-3-entity-linking.md)。
+
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
 ## 本地开发
@@ -191,6 +193,14 @@ uv run knowledgescope graph-extraction-sample
 ```
 
 若需要把已验证的本次样本写入本地 Neo4j，显式追加 `--persist`；默认只生成被忽略的运行时 review 文件。抽取 taxonomy、grounding 和一致性边界见 [A3.2 LLM 实体与关系抽取说明](docs/architecture/graph-extraction.md)。
+
+运行 A3.3 的少量实体链接 review sample（复用已有 A3.2 runtime extraction，不重新调用 MinerU）：
+
+```bash
+uv run knowledgescope entity-linking-sample
+```
+
+默认使用 `data/evaluation/a3-2/debug-9/sample.jsonl`、`data/evaluation/a3-2/holdout-18/sample.jsonl` 和 `data/evaluation/a3-2/fresh-18/sample.jsonl`，只输出 bounded 的 `data/evaluation/a3-3/review.jsonl` 与 `summary.json`。需要 LLM 仲裁时显式使用 `--adjudicate`；需要把本次 linking plan 写入 Neo4j 时再显式使用 `--persist`。A3.3 linking 操作不会修改 A3.1 local entity、relation 或 evidence。
 
 运行 A2.7 RAG endpoint 还需要安装已有的本地 embedding/reranker 依赖：
 
