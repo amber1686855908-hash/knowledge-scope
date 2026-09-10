@@ -15,6 +15,22 @@ from pydantic import ValidationError
 
 from knowledge_scope import __version__
 from knowledge_scope.chunking.service import ChunkingError, chunk_document_by_id
+from knowledge_scope.documents.registration import (
+    DEFAULT_CANONICAL_ROOT as DEFAULT_REGISTRATION_CANONICAL_ROOT,
+)
+from knowledge_scope.documents.registration import (
+    DEFAULT_CHUNK_INDEX as DEFAULT_REGISTRATION_CHUNK_INDEX,
+)
+from knowledge_scope.documents.registration import (
+    DEFAULT_CORPUS_MANIFEST,
+    DEFAULT_EVAL_DATASET,
+    DEFAULT_EVAL_KB_MAPPING,
+    CorpusRegistrationError,
+    build_frozen_eval_kb_mapping,
+    build_registration_spec,
+    register_corpus,
+    write_frozen_eval_kb_mapping,
+)
 from knowledge_scope.evaluation import reranker_benchmark
 from knowledge_scope.evaluation.embedding_benchmark import (
     DEFAULT_CHUNK_INDEX,
@@ -78,6 +94,11 @@ from knowledge_scope.evaluation.retrieval_eval import (
     validate_runtime_evaluation,
 )
 from knowledge_scope.evaluation.retrieval_system_benchmark import (
+    BGE_RERANKER_MODEL_REVISION,
+    RetrievalSystemBenchmarkError,
+    run_retrieval_system_benchmark,
+)
+from knowledge_scope.evaluation.retrieval_system_benchmark import (
     DEFAULT_CHUNK_INDEX as DEFAULT_SYSTEM_CHUNK_INDEX,
 )
 from knowledge_scope.evaluation.retrieval_system_benchmark import (
@@ -88,10 +109,6 @@ from knowledge_scope.evaluation.retrieval_system_benchmark import (
 )
 from knowledge_scope.evaluation.retrieval_system_benchmark import (
     DEFAULT_OUTPUT as DEFAULT_SYSTEM_OUTPUT,
-)
-from knowledge_scope.evaluation.retrieval_system_benchmark import (
-    RetrievalSystemBenchmarkError,
-    run_retrieval_system_benchmark,
 )
 from knowledge_scope.extraction.service import ExtractionError
 from knowledge_scope.graph.neo4j import GraphStoreError, Neo4jGraphStore
@@ -104,12 +121,24 @@ from knowledge_scope.llm.schemas import LLM_TASK_TYPES
 from knowledge_scope.llm.usage import DatabaseUsageRecorder
 from knowledge_scope.parsing.service import DocumentParseError, parse_document_by_id
 from knowledge_scope.retrieval.embedding import EmbeddingModelError, QwenEmbeddingModel
+from knowledge_scope.retrieval.hybrid import (
+    HybridRetrievalConfig,
+    HybridRetrievalError,
+    HybridRetrievalService,
+)
 from knowledge_scope.retrieval.indexing import (
     IndexingError,
     index_canonical_corpus,
     index_document_by_id,
 )
 from knowledge_scope.retrieval.qdrant import QdrantVectorStore, VectorStoreError
+from knowledge_scope.retrieval.qdrant_attribution import (
+    QdrantAttributionError,
+    apply_attribution_repair,
+    build_attribution_audit,
+    load_authoritative_document_mappings,
+    point_identity_signature,
+)
 from knowledge_scope.retrieval.reranking import (
     RerankerError,
     RerankingService,
@@ -163,6 +192,54 @@ def build_parser() -> argparse.ArgumentParser:
         help="chunk an existing canonical document into structural chunks",
     )
     chunk_document.add_argument("document_id", type=UUID)
+
+    corpus = subparsers.add_parser(
+        "corpus",
+        help="register an existing parsed corpus as explicit reference-backed documents",
+    )
+    corpus_actions = corpus.add_subparsers(dest="corpus_action", required=True)
+    register_corpus_parser = corpus_actions.add_parser(
+        "register",
+        help="register existing canonical/chunk artifacts in one supplied Knowledge Base",
+    )
+    register_corpus_parser.add_argument("--knowledge-base-id", type=UUID, required=True)
+    register_corpus_parser.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=DEFAULT_CORPUS_MANIFEST,
+    )
+    register_corpus_parser.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=DEFAULT_REGISTRATION_CANONICAL_ROOT,
+    )
+    register_corpus_parser.add_argument(
+        "--chunk-index",
+        type=Path,
+        default=DEFAULT_REGISTRATION_CHUNK_INDEX,
+    )
+    register_corpus_parser.add_argument(
+        "--expected-document-count",
+        type=_non_negative_int,
+        default=255,
+    )
+    register_corpus_parser.add_argument(
+        "--expected-chunk-count",
+        type=_non_negative_int,
+        default=7_524,
+    )
+    register_corpus_parser.add_argument(
+        "--evaluation-dataset",
+        type=Path,
+        default=DEFAULT_EVAL_DATASET,
+        help="frozen A2.1 dataset used to derive an ignored item-to-KB mapping",
+    )
+    register_corpus_parser.add_argument(
+        "--evaluation-mapping-output",
+        type=Path,
+        default=DEFAULT_EVAL_KB_MAPPING,
+        help="ignored runtime path for the derived A2.1 item-to-KB mapping",
+    )
 
     benchmark = subparsers.add_parser(
         "benchmark-parsing",
@@ -452,6 +529,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("data/benchmarks/a1-5/canonical"),
     )
     qdrant_index_corpus.add_argument("--limit", type=_positive_int)
+    qdrant_audit_kb = qdrant_actions.add_parser(
+        "audit-kb",
+        help="audit or explicitly repair authoritative Knowledge Base payloads",
+    )
+    qdrant_audit_kb.add_argument(
+        "--apply",
+        action="store_true",
+        help="apply payload-only repair after a complete, unambiguous preflight",
+    )
     qdrant_search = qdrant_actions.add_parser(
         "search",
         help="run dense top-k search over indexed chunks",
@@ -601,6 +687,24 @@ def build_parser() -> argparse.ArgumentParser:
     rerank_search.add_argument("--limit", type=_positive_int, default=10)
     rerank_search.add_argument("--knowledge-base-id", type=UUID)
     rerank_search.add_argument("--document-id", type=UUID)
+
+    hybrid_search = subparsers.add_parser(
+        "hybrid-search",
+        help="run Qwen dense+BGE reranking and bounded graph retrieval with RRF",
+    )
+    hybrid_search.add_argument("query")
+    hybrid_search.add_argument("--knowledge-base-id", type=UUID, required=True)
+    hybrid_search.add_argument("--document-id", type=UUID)
+    hybrid_search.add_argument("--vector-candidate-limit", type=_positive_int)
+    hybrid_search.add_argument("--vector-rerank-limit", type=_positive_int)
+    hybrid_search.add_argument("--graph-limit", type=_positive_int)
+    hybrid_search.add_argument("--limit", type=_positive_int)
+    hybrid_search.add_argument("--rrf-k", type=_positive_int)
+    hybrid_search.add_argument(
+        "--failure-mode",
+        choices=("strict", "degraded"),
+        help="strict fails if either branch fails; degraded returns the surviving branch",
+    )
     return parser
 
 
@@ -608,6 +712,13 @@ def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be at least one")
+    return parsed
+
+
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must not be negative")
     return parsed
 
 
@@ -729,6 +840,61 @@ def _run_chunk_document(document_id: UUID) -> int:
     print(f"config_fingerprint: {result.config_fingerprint}")
     print(f"chunks_ref: {result.chunks_ref}")
     print(f"manifest_ref: {result.manifest_ref}")
+    return 0
+
+
+async def _register_corpus_async(args: argparse.Namespace, settings: Settings) -> dict[str, object]:
+    """Validate corpus artifacts, then register them in one database transaction."""
+    spec = build_registration_spec(
+        args.knowledge_base_id,
+        corpus_manifest=args.corpus_manifest,
+        canonical_root=args.canonical_root,
+        chunk_index=args.chunk_index,
+        expected_document_count=args.expected_document_count,
+        expected_chunk_count=args.expected_chunk_count,
+    )
+    evaluation_mapping = build_frozen_eval_kb_mapping(
+        args.evaluation_dataset,
+        registered_document_ids={document.document_id for document in spec.documents},
+        knowledge_base_id=args.knowledge_base_id,
+    )
+    engine = create_database_engine(settings)
+    try:
+        session_factory = create_session_factory(engine)
+        async with session_factory() as session:
+            result = await register_corpus(session, spec)
+    finally:
+        await engine.dispose()
+    write_frozen_eval_kb_mapping(args.evaluation_mapping_output, evaluation_mapping)
+    return {
+        "schema_version": "1.0",
+        "status": "registered",
+        "manifest_rows": spec.manifest_rows,
+        "duplicate_manifest_rows": spec.duplicate_manifest_rows,
+        "unique_document_count": len(spec.documents),
+        "chunk_count": spec.chunk_count,
+        "documents_attempted": result.documents_attempted,
+        "documents_inserted": result.documents_inserted,
+        "documents_already_valid": result.documents_already_valid,
+        "conflicts": result.conflicts,
+        "failures": result.failures,
+        "knowledge_base_id": str(result.knowledge_base_id),
+        "evaluation_item_count": len(evaluation_mapping),
+        "evaluation_mapping_output": str(args.evaluation_mapping_output),
+    }
+
+
+def _run_corpus(args: argparse.Namespace) -> int:
+    """Run the explicit external-corpus registration workflow."""
+    try:
+        settings = get_settings()
+        output = asyncio.run(_register_corpus_async(args, settings))
+    except (CorpusRegistrationError, ValidationError, ValueError) as error:
+        print("corpus_registration_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    print("corpus_registration_status: complete")
+    print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -1009,6 +1175,141 @@ def _run_rerank_search(args: argparse.Namespace) -> int:
         return 1
 
 
+def _hybrid_retrieval_config(
+    settings: Settings,
+    args: argparse.Namespace,
+) -> HybridRetrievalConfig:
+    """Build hybrid bounds from settings and explicit CLI overrides."""
+
+    values = {
+        "rrf_k": settings.hybrid_rrf_k,
+        "vector_candidate_limit": settings.hybrid_vector_candidate_limit,
+        "vector_rerank_limit": settings.hybrid_vector_rerank_limit,
+        "graph_result_limit": settings.hybrid_graph_result_limit,
+        "result_limit": settings.hybrid_result_limit,
+        "failure_mode": settings.hybrid_failure_mode,
+    }
+    for argument, setting in (
+        ("rrf_k", "rrf_k"),
+        ("vector_candidate_limit", "vector_candidate_limit"),
+        ("vector_rerank_limit", "vector_rerank_limit"),
+        ("graph_limit", "graph_result_limit"),
+        ("limit", "result_limit"),
+        ("failure_mode", "failure_mode"),
+    ):
+        value = getattr(args, argument, None)
+        if value is not None:
+            values[setting] = value
+    return HybridRetrievalConfig(**values)
+
+
+def _run_hybrid_search(args: argparse.Namespace) -> int:
+    """Run the independent vector-plus-graph developer workflow."""
+
+    qdrant_store = None
+    graph_store = None
+    try:
+        settings = get_settings()
+        qdrant_store = QdrantVectorStore(settings)
+        graph_store = Neo4jGraphStore(settings)
+        vector_retrieval = DenseRetrievalService(
+            qdrant_store,
+            QwenEmbeddingModel(settings),
+        )
+        reranker_settings = settings
+        if reranker_settings.reranker_model_revision is None:
+            reranker_settings = settings.model_copy(
+                update={"reranker_model_revision": BGE_RERANKER_MODEL_REVISION}
+            )
+        reranking = RerankingService(
+            create_local_reranker(reranker_settings, model_key="bge-reranker-v2-m3")
+        )
+        graph_retrieval = GraphRetrievalService(
+            graph_store,
+            config=_graph_retrieval_config(settings),
+        )
+        result = asyncio.run(
+            HybridRetrievalService(
+                vector_retrieval,
+                reranking,
+                graph_retrieval,
+                config=_hybrid_retrieval_config(settings, args),
+            ).search(
+                args.query,
+                args.knowledge_base_id,
+                document_id=args.document_id,
+            )
+        )
+        output = result.model_dump(mode="json")
+        output["source_distribution"] = result.source_distribution
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return 0
+    except (
+        EmbeddingModelError,
+        GraphRetrievalError,
+        GraphStoreError,
+        HybridRetrievalError,
+        RerankerError,
+        RetrievalError,
+        ValidationError,
+        VectorStoreError,
+        ValueError,
+    ) as error:
+        print("hybrid_search_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        if qdrant_store is not None:
+            qdrant_store.close()
+        if graph_store is not None:
+            graph_store.close()
+
+
+def _run_qdrant_attribution(
+    store: QdrantVectorStore,
+    settings: Settings,
+    *,
+    apply: bool,
+) -> int:
+    """Audit or safely repair Qdrant Knowledge Base payloads."""
+    before_points = store.list_point_metadata()
+    mappings = asyncio.run(
+        load_authoritative_document_mappings(
+            [point.document_id for point in before_points],
+            settings,
+        )
+    )
+    before = build_attribution_audit(before_points, mappings)
+    output: dict[str, object] = {
+        "mode": "apply" if apply else "audit",
+        "before": before.as_dict(),
+    }
+    if not apply:
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return 0
+    if not before.can_apply:
+        output["message"] = (
+            "repair refused: every Qdrant document must have one non-null, "
+            "unambiguous PostgreSQL Knowledge Base mapping"
+        )
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return 1
+
+    updated_points = apply_attribution_repair(store, before)
+    after_points = store.list_point_metadata()
+    after = build_attribution_audit(after_points, mappings)
+    if point_identity_signature(before_points) != point_identity_signature(after_points):
+        raise QdrantAttributionError("Qdrant repair changed point, document, or chunk identity")
+    if after.point_count != before.point_count:
+        raise QdrantAttributionError("Qdrant repair changed the collection point count")
+    if not after.can_apply or after.points_with_null_kb or after.planned_update_points:
+        raise QdrantAttributionError("Qdrant repair did not produce complete KB attribution")
+    output["updated_points"] = updated_points
+    output["after"] = after.as_dict()
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _run_qdrant(args: argparse.Namespace) -> int:
     """Run the small local Qdrant developer workflow."""
     try:
@@ -1051,6 +1352,8 @@ def _run_qdrant(args: argparse.Namespace) -> int:
                     )
                 )
                 return 0
+            if args.qdrant_action == "audit-kb":
+                return _run_qdrant_attribution(store, settings, apply=args.apply)
             if args.qdrant_action == "search":
                 result = DenseRetrievalService(
                     store,
@@ -1079,6 +1382,7 @@ def _run_qdrant(args: argparse.Namespace) -> int:
     except (
         EmbeddingModelError,
         IndexingError,
+        QdrantAttributionError,
         RetrievalError,
         ValidationError,
         VectorStoreError,
@@ -1338,6 +1642,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_parse_document(args.document_id)
     if args.command == "chunk-document":
         return _run_chunk_document(args.document_id)
+    if args.command == "corpus":
+        return _run_corpus(args)
     if args.command == "benchmark-parsing":
         return _run_benchmark(args)
     if args.command == "retrieval-eval":
@@ -1362,6 +1668,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_graph_retrieval_sample(args)
     if args.command == "rerank-search":
         return _run_rerank_search(args)
+    if args.command == "hybrid-search":
+        return _run_hybrid_search(args)
 
     parser.print_help()
     return 0

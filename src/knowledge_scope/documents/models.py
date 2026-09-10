@@ -23,10 +23,14 @@ from knowledge_scope.shared.database import Base
 DOCUMENT_FILENAME_MAX_LENGTH: Final = 255
 DOCUMENT_MEDIA_TYPE_PDF: Final = "application/pdf"
 DOCUMENT_STATUS_UPLOADED: Final = "uploaded"
+DOCUMENT_STATUS_REGISTERED: Final = "registered"
+DOCUMENT_STORAGE_KIND_MANAGED: Final = "managed"
+DOCUMENT_STORAGE_KIND_EXTERNAL_REFERENCE: Final = "external_reference"
+DOCUMENT_SOURCE_REF_MAX_LENGTH: Final = 2_048
 
 
 class Document(Base):
-    """A PDF persisted in a knowledge base."""
+    """A PDF registered in a knowledge base, either managed or external."""
 
     __tablename__ = "documents"
     __table_args__ = (
@@ -45,12 +49,34 @@ class Document(Base):
             name="ck_documents_media_type_pdf",
         ),
         CheckConstraint(
-            "status = 'uploaded'",
-            name="ck_documents_status_uploaded",
+            "status IN ('uploaded', 'registered')",
+            name="ck_documents_status_known",
         ),
         CheckConstraint(
-            "storage_key <> '' AND storage_key NOT LIKE '/%' AND storage_key NOT LIKE '%..%'",
-            name="ck_documents_storage_key_relative_safe",
+            """
+            storage_kind IN ('managed', 'external_reference')
+            AND (
+                (
+                    storage_kind = 'managed'
+                    AND storage_key IS NOT NULL
+                    AND storage_key <> ''
+                    AND storage_key NOT LIKE '/%'
+                    AND storage_key NOT LIKE '%..%'
+                    AND source_ref IS NULL
+                )
+                OR (
+                    storage_kind = 'external_reference'
+                    AND storage_key IS NULL
+                    AND source_ref IS NOT NULL
+                    AND btrim(source_ref) = source_ref
+                    AND source_ref <> ''
+                    AND source_ref NOT LIKE '/%'
+                    AND source_ref NOT LIKE '%..%'
+                    AND source_ref NOT LIKE '%:%'
+                )
+            )
+            """,
+            name="ck_documents_storage_reference_consistent",
         ),
     )
 
@@ -63,7 +89,16 @@ class Document(Base):
     original_filename: Mapped[str] = mapped_column(
         String(length=DOCUMENT_FILENAME_MAX_LENGTH), nullable=False
     )
-    storage_key: Mapped[str] = mapped_column(String(length=512), nullable=False)
+    storage_key: Mapped[str | None] = mapped_column(String(length=512), nullable=True)
+    storage_kind: Mapped[str] = mapped_column(
+        String(length=32),
+        nullable=False,
+        default=DOCUMENT_STORAGE_KIND_MANAGED,
+        server_default=DOCUMENT_STORAGE_KIND_MANAGED,
+    )
+    source_ref: Mapped[str | None] = mapped_column(
+        String(length=DOCUMENT_SOURCE_REF_MAX_LENGTH), nullable=True
+    )
     media_type: Mapped[str] = mapped_column(String(length=100), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[str] = mapped_column(String(length=64), nullable=False)

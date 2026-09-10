@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     graph_retrieval_max_evidence: int = Field(default=50, ge=1, le=500)
     graph_retrieval_max_entity_scan: int = Field(default=10_000, ge=1, le=100_000)
     graph_retrieval_lexical_threshold: float = Field(default=0.78, ge=0.7, le=1)
+    hybrid_rrf_k: int = Field(default=60, ge=1, le=10_000)
+    hybrid_vector_candidate_limit: int = Field(default=20, ge=1, le=100)
+    hybrid_vector_rerank_limit: int = Field(default=10, ge=1, le=100)
+    hybrid_graph_result_limit: int = Field(default=20, ge=1, le=500)
+    hybrid_result_limit: int = Field(default=20, ge=1, le=500)
+    hybrid_failure_mode: Literal["strict", "degraded"] = "degraded"
 
 
 def get_settings() -> Settings:

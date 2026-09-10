@@ -26,6 +26,8 @@ from knowledge_scope.chunking.service import CHUNKING_DIRECTORY_NAME
 from knowledge_scope.documents.models import (
     DOCUMENT_MEDIA_TYPE_PDF,
     DOCUMENT_STATUS_UPLOADED,
+    DOCUMENT_STORAGE_KIND_EXTERNAL_REFERENCE,
+    DOCUMENT_STORAGE_KIND_MANAGED,
     Document,
 )
 from knowledge_scope.documents.storage import (
@@ -153,6 +155,8 @@ async def upload_document(
             knowledge_base_id=knowledge_base_id,
             original_filename=staged.original_filename,
             storage_key=storage_key,
+            storage_kind=DOCUMENT_STORAGE_KIND_MANAGED,
+            source_ref=None,
             media_type=DOCUMENT_MEDIA_TYPE_PDF,
             size_bytes=staged.size_bytes,
             sha256=staged.sha256,
@@ -270,8 +274,13 @@ async def delete_document(
     trashed_parsing: TrashedResource | None = None
     trashed_chunking: TrashedResource | None = None
     try:
-        final_path = filesystem_path_for_storage_key(settings.data_dir, document.storage_key)
-        trashed_source = move_to_trash(final_path, settings.data_dir)
+        if document.storage_kind == DOCUMENT_STORAGE_KIND_MANAGED:
+            if document.storage_key is None:
+                raise StorageError("managed document has no storage key")
+            final_path = filesystem_path_for_storage_key(settings.data_dir, document.storage_key)
+            trashed_source = move_to_trash(final_path, settings.data_dir)
+        elif document.storage_kind != DOCUMENT_STORAGE_KIND_EXTERNAL_REFERENCE:
+            raise StorageError("document has an unsupported storage kind")
 
         parsing_path = Path(settings.data_dir).resolve() / PARSING_DIRECTORY_NAME / str(document.id)
         if parsing_path.is_symlink() or parsing_path.exists():

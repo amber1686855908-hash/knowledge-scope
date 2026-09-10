@@ -98,21 +98,25 @@ class _FakeQdrantClient:
     def scroll(
         self,
         *,
-        scroll_filter: models.Filter,
+        scroll_filter: models.Filter | None = None,
         limit: int,
         offset: object = None,
         **_kwargs: object,
     ):
-        document_id = scroll_filter.must[0].match.value
-        records = [
-            record
-            for record in self.points.values()
-            if record.payload and record.payload["document_id"] == document_id
-        ]
+        records = list(self.points.values())
+        if scroll_filter is not None:
+            document_id = scroll_filter.must[0].match.value
+            records = [
+                record
+                for record in records
+                if record.payload and record.payload["document_id"] == document_id
+            ]
         start = int(offset or 0)
         page = records[start : start + limit]
         next_offset = start + limit if start + limit < len(records) else None
-        return [SimpleNamespace(id=record.id) for record in page], next_offset
+        return [
+            SimpleNamespace(id=record.id, payload=record.payload) for record in page
+        ], next_offset
 
     def retrieve(self, *, ids: list[UUID], **_kwargs: object):
         return [
@@ -141,6 +145,18 @@ class _FakeQdrantClient:
             raise RuntimeError("simulated delete failure")
         for point_id in points_selector.points:
             self.points.pop(str(point_id), None)
+
+    def set_payload(
+        self,
+        *,
+        payload: dict[str, object],
+        points: models.PointIdsList,
+        **_kwargs: object,
+    ) -> None:
+        for point_id in points.points:
+            record = self.points[str(point_id)]
+            assert record.payload is not None
+            record.payload.update(payload)
 
     def query_points(
         self,
@@ -347,6 +363,33 @@ def test_dense_retrieval_service_passes_filters_and_returns_ranked_items() -> No
 
     assert result.model_id == "Qwen/Qwen3-Embedding-0.6B"
     assert result.items[0].payload.chunk_id == "chunk-1"
+
+
+def test_qdrant_payload_attribution_preserves_point_and_vector_identity() -> None:
+    settings = Settings(_env_file=None)
+    client = _FakeQdrantClient()
+    store = QdrantVectorStore(settings, client=client)
+    document_id = uuid4()
+    original_kb = uuid4()
+    repaired_kb = uuid4()
+    store.replace_document([_point(document_id, "chunk-1", original_kb)])
+    point_id = next(iter(client.points))
+    original = client.points[point_id]
+    original_vector = list(original.vector or [])
+
+    metadata = store.list_point_metadata()
+    assert metadata[0].point_id == UUID(point_id)
+    assert metadata[0].chunk_id == "chunk-1"
+    assert metadata[0].knowledge_base_id == original_kb
+
+    store.set_point_knowledge_base_ids((metadata[0].point_id,), repaired_kb)
+    repaired = client.points[point_id]
+    assert repaired.payload is not None
+    assert repaired.payload["knowledge_base_id"] == str(repaired_kb)
+    assert repaired.vector == original_vector
+    assert repaired.id == original.id
+    assert repaired.payload["document_id"] == str(document_id)
+    assert repaired.payload["chunk_id"] == "chunk-1"
 
 
 @pytest.mark.integration
