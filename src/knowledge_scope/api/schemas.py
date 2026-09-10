@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from knowledge_scope.documents.models import (
     DOCUMENT_FILENAME_MAX_LENGTH,
     DOCUMENT_MEDIA_TYPE_PDF,
+    DOCUMENT_STATUS_REGISTERED,
     DOCUMENT_STATUS_UPLOADED,
 )
 from knowledge_scope.knowledge_bases.models import (
@@ -129,7 +130,7 @@ class DocumentResponse(BaseModel):
     media_type: Literal[DOCUMENT_MEDIA_TYPE_PDF]
     size_bytes: int = Field(..., gt=0)
     sha256: str = Field(..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
-    status: Literal[DOCUMENT_STATUS_UPLOADED]
+    status: Literal[DOCUMENT_STATUS_UPLOADED, DOCUMENT_STATUS_REGISTERED]
     created_at: datetime
     updated_at: datetime
 

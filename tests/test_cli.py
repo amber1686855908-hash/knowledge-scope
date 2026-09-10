@@ -106,6 +106,60 @@ def test_graph_retrieval_commands_have_bounded_typed_arguments() -> None:
     assert sample_args.output == Path("data/evaluation/a3-4")
 
 
+def test_hybrid_search_parser_requires_kb_and_exposes_bounded_overrides() -> None:
+    args = build_parser().parse_args(
+        [
+            "hybrid-search",
+            "查找起点",
+            "--knowledge-base-id",
+            "11111111-1111-4111-8111-111111111111",
+            "--vector-candidate-limit",
+            "20",
+            "--vector-rerank-limit",
+            "10",
+            "--graph-limit",
+            "8",
+            "--limit",
+            "6",
+            "--rrf-k",
+            "60",
+            "--failure-mode",
+            "strict",
+        ]
+    )
+
+    assert args.knowledge_base_id == UUID("11111111-1111-4111-8111-111111111111")
+    assert args.vector_candidate_limit == 20
+    assert args.vector_rerank_limit == 10
+    assert args.graph_limit == 8
+    assert args.limit == 6
+    assert args.rrf_k == 60
+    assert args.failure_mode == "strict"
+
+
+def test_qdrant_attribution_parser_defaults_to_audit_and_supports_apply() -> None:
+    audit_args = build_parser().parse_args(["qdrant", "audit-kb"])
+    apply_args = build_parser().parse_args(["qdrant", "audit-kb", "--apply"])
+
+    assert audit_args.apply is False
+    assert apply_args.apply is True
+
+
+def test_corpus_registration_parser_requires_explicit_knowledge_base() -> None:
+    args = build_parser().parse_args(
+        [
+            "corpus",
+            "register",
+            "--knowledge-base-id",
+            "11111111-1111-4111-8111-111111111111",
+        ]
+    )
+
+    assert args.knowledge_base_id == UUID("11111111-1111-4111-8111-111111111111")
+    assert args.expected_document_count == 255
+    assert args.expected_chunk_count == 7_524
+
+
 def test_llm_smoke_test_fails_cleanly_without_api_key(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

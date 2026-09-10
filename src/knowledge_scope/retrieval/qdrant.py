@@ -106,6 +106,16 @@ class IndexResult:
     removed_stale_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class QdrantPointMetadata:
+    """Identity and attribution fields read without loading a vector."""
+
+    point_id: UUID
+    document_id: UUID
+    chunk_id: str
+    knowledge_base_id: UUID | None
+
+
 def point_id_for_chunk(chunk_id: str) -> UUID:
     """Return a stable Qdrant UUID for a canonical chunk ID."""
     if not chunk_id.strip():
@@ -254,6 +264,95 @@ class QdrantVectorStore:
             point_ids.extend(record.id for record in records)
             if offset is None:
                 return point_ids
+
+    def list_point_metadata(self) -> tuple[QdrantPointMetadata, ...]:
+        """Read point identity and KB payloads for safe attribution audits."""
+        readiness = self.readiness()
+        if readiness.status == "available":
+            return ()
+        if readiness.status == "unavailable":
+            raise VectorStoreError(readiness.error or "Qdrant is unavailable")
+
+        records: list[QdrantPointMetadata] = []
+        offset: Any | None = None
+        try:
+            while True:
+                page, offset = self._get_client().scroll(
+                    collection_name=self.collection_name,
+                    limit=QDRANT_SCROLL_PAGE_SIZE,
+                    offset=offset,
+                    with_payload=["document_id", "chunk_id", "knowledge_base_id"],
+                    with_vectors=False,
+                )
+                for record in page:
+                    payload = record.payload
+                    if not isinstance(payload, dict):
+                        raise VectorStoreError("Qdrant point is missing its payload")
+                    document_value = payload.get("document_id")
+                    chunk_value = payload.get("chunk_id")
+                    if (
+                        document_value is None
+                        or not isinstance(chunk_value, str)
+                        or not chunk_value
+                    ):
+                        raise VectorStoreError("Qdrant point is missing document/chunk identity")
+                    try:
+                        document_id = UUID(str(document_value))
+                        point_id = _as_point_id(record.id)
+                        knowledge_base_value = payload.get("knowledge_base_id")
+                        knowledge_base_id = (
+                            None
+                            if knowledge_base_value is None
+                            else UUID(str(knowledge_base_value))
+                        )
+                    except (TypeError, ValueError) as error:
+                        raise VectorStoreError(
+                            "Qdrant point has invalid identity payload"
+                        ) from error
+                    records.append(
+                        QdrantPointMetadata(
+                            point_id=point_id,
+                            document_id=document_id,
+                            chunk_id=chunk_value,
+                            knowledge_base_id=knowledge_base_id,
+                        )
+                    )
+                if offset is None:
+                    return tuple(records)
+        except VectorStoreError:
+            raise
+        except Exception as error:
+            raise VectorStoreError("Qdrant point metadata could not be read") from error
+
+    def set_point_knowledge_base_ids(
+        self,
+        point_ids: Sequence[UUID],
+        knowledge_base_id: UUID,
+    ) -> None:
+        """Update only KB payloads; rerunning the same update is idempotent."""
+        if not point_ids:
+            return
+        readiness = self.readiness()
+        if readiness.status == "available":
+            raise VectorStoreError("Qdrant collection does not exist")
+        if readiness.status == "unavailable":
+            raise VectorStoreError(readiness.error or "Qdrant is unavailable")
+        client = self._get_client()
+        batch_size = max(1, self.settings.qdrant_upsert_batch_size)
+        try:
+            for start in range(0, len(point_ids), batch_size):
+                client.set_payload(
+                    collection_name=self.collection_name,
+                    payload={"knowledge_base_id": str(knowledge_base_id)},
+                    points=models.PointIdsList(
+                        points=[str(point_id) for point_id in point_ids[start : start + batch_size]]
+                    ),
+                    wait=True,
+                )
+        except Exception as error:
+            raise VectorStoreError(
+                "Qdrant KB payload repair may be partial; rerun the same audit/apply command"
+            ) from error
 
     def _retrieve_snapshot(self, point_ids: Sequence[Any]) -> list[Any]:
         if not point_ids:
@@ -439,6 +538,7 @@ __all__ = [
     "ChunkVectorPayload",
     "CollectionConfigurationError",
     "IndexResult",
+    "QdrantPointMetadata",
     "QdrantReadiness",
     "QdrantVectorStore",
     "RetrievedChunk",

@@ -45,6 +45,10 @@ data/benchmarks/a3-3/
 data/evaluation/a3-4/
 data/benchmarks/a3-4/
 
+# Local A3.5 hybrid-retrieval review records and measurements
+data/evaluation/a3-5/
+data/benchmarks/a3-5/
+
 # IDE settings
 .idea/
 .vscode/

@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from knowledge_scope.documents.models import Document
+from knowledge_scope.documents.models import DOCUMENT_STORAGE_KIND_MANAGED, Document
 from knowledge_scope.documents.storage import StorageError, filesystem_path_for_storage_key
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
@@ -276,7 +276,11 @@ async def parse_document_by_id(document_id: UUID, settings: Settings) -> ParseRe
                 document = await session.scalar(select(Document).where(Document.id == document_id))
                 if document is None:
                     raise DocumentParseError("document was not found")
+                if document.storage_kind != DOCUMENT_STORAGE_KIND_MANAGED:
+                    raise DocumentParseError("document does not have a managed source file")
                 storage_key = document.storage_key
+                if storage_key is None:
+                    raise DocumentParseError("document does not have a managed source file")
                 expected_sha256 = document.sha256
         except DocumentParseError:
             raise

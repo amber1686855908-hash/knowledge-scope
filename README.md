@@ -4,7 +4,7 @@ KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，当前提供�
 
 ## 当前状态
 
-Phase A3.1 已完成，目前提供：
+当前已完成 A3.4，A3.5 hybrid retrieval 基础已加入开发分支，目前提供：
 
 - 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health、parse-document 和 chunk-document CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
@@ -50,6 +50,25 @@ Phase A3.3 当前提供显式的 local entity linking 基础：`knowledge_scope.
 
 Phase A3.4 已加入独立的 bounded Graph Retriever：`knowledge_scope.graph.retrieval_service` 在指定 `knowledge_base_id` 内，使用 A3.3 当前 canonical membership 做保守的 local entity、alias 和规范化 lexical seed resolution，再通过 Neo4j 的有方向 local relation 和显式 canonical bridge 做最多两跳遍历。结果只返回有 `KnowledgeEvidence` 支撑的 `document_id`、页码、`chunk_id`、`source_block_ids` 和 `section_path` lineage，并按可解释的确定性信号排序；没有可靠 seed 时返回空结果。`uv run knowledgescope graph-search` 可执行单次开发者查询，`uv run knowledgescope graph-retrieval-sample` 可对已有本地 A3.2/A3.3 sample graph 生成被忽略的 review pack。A3.4 不接入 Qdrant、RAG 或前端，不调用 LLM 做查询解析，也不执行全语料图检索；边界和小样本口径见 [A3.4 图检索说明](docs/architecture/graph-retrieval.md) 和 [A3.4 小样本记录](docs/benchmarks/a3-4-graph-retrieval.md)。
 
+Phase A3.5 已加入独立的 vector + graph hybrid retrieval：向量分支复用 `Qwen/Qwen3-Embedding-0.6B`、Qdrant dense candidates 和 `BAAI/bge-reranker-v2-m3`，图分支复用 A3.4 bounded graph retrieval；两条分支并发执行后，以 `(knowledge_base_id, document_id, chunk_id)` 去重并使用可配置的 RRF 融合。结果保留 vector/graph/both 来源、分支排名、图 seed/path、evidence IDs 和完整 chunk lineage；分支状态明确区分成功、空结果、失败和超时，支持 `degraded` 与 `strict` 模式。`uv run knowledgescope hybrid-search` 可执行单次开发者查询；当前不修改 RAG answer generation，不增加 sparse/hybrid score calibration、学习式融合或前端检索 UI。详见 [A3.5 hybrid retrieval 说明](docs/architecture/hybrid-retrieval.md)。
+
+当前 A1.5/A1.6 的 255 个 benchmark 文档可以通过显式的 corpus registration workflow 登记为一个指定 KnowledgeBase。该流程不从文件名、路径、学科或正文推断归属，不重新运行 MinerU、分块或 embedding，也不复制/移动源语料；登记后的 `Document` 使用 `status=registered` 和 `storage_kind=external_reference`，`storage_key` 保持为空，原有普通上传文档的本地托管语义不变。登记前会校验 255 个唯一文档、canonical artifact、7,524 个 chunk lineage、目标 KB 和所有权冲突，并在一个 PostgreSQL 事务中完成；重复执行是幂等的，冲突会整体拒绝。登记还会生成被忽略的 `data/evaluation/a3-5/a2-1-kb-mapping.jsonl`，将冻结 A2.1 的 108 个 item 映射到同一显式 KB，但不会修改冻结标注；完整的存储与升级说明见 [benchmark corpus registration](docs/architecture/benchmark-corpus-registration.md)。
+
+登记已有 benchmark 语料时，必须显式提供目标 KB UUID：
+
+```bash
+uv run knowledgescope corpus register --knowledge-base-id <knowledge-base-uuid>
+```
+
+登记完成后，先审计再修复已有 Qdrant reference collection 的 KB payload：
+
+```bash
+uv run knowledgescope qdrant audit-kb
+uv run knowledgescope qdrant audit-kb --apply
+```
+
+`--apply` 只更新 Qdrant point payload 中的 `knowledge_base_id`；不会重算或替换向量、point ID、chunk ID、fingerprint 或 lineage。Qdrant 批量 payload 更新与 PostgreSQL 登记不是分布式原子事务，但在完整映射预检后可安全重复执行；中途失败时命令会明确报错，应重新运行审计。完成显式登记和 payload 修复后，才可将该 collection 用于 KB-scoped hybrid retrieval。原先由 `index_canonical_corpus` 建立的无 KB reference collection 在修复前不能用于该查询，也不能猜测或伪造 KB。
+
 当前 PDF 不会在上传请求中自动解析；需要使用开发者 CLI 显式触发。当前本地文件布局用于开发和参考环境，不等同于生产对象存储方案。解析集成说明详见 [MinerU 本地集成](docs/integrations/mineru.md)，模型约定详见 [CanonicalDocument 规范](docs/architecture/canonical-document-model.md)，分块约定详见 [CanonicalDocument → Chunk 规范](docs/architecture/canonical-document-chunking.md)。
 
 ## 本地开发
@@ -73,7 +92,7 @@ npm install
 docker compose up -d postgres qdrant neo4j
 ```
 
-Compose 默认将 PostgreSQL 映射到 `127.0.0.1:5433`、Qdrant 映射到 `127.0.0.1:6333`、Neo4j Bolt 映射到 `127.0.0.1:7687`、HTTP 映射到 `127.0.0.1:7474`，本地开发凭据、数据库名、Qdrant collection 和 Neo4j 连接配置定义在 [compose.yaml](compose.yaml) 与 [.env.example](.env.example) 中。复制 [.env.example](.env.example) 为 `.env` 后，可通过 `KNOWLEDGE_SCOPE_POSTGRES_PORT`、`KNOWLEDGE_SCOPE_QDRANT_URL` 和 `KNOWLEDGE_SCOPE_NEO4J_URI` 修改连接配置；Compose 在未提供 Neo4j 密码时只使用本地开发默认值，任何共享环境都必须显式配置凭据。不要在 `.env` 中提交 secrets。Qdrant 和 Neo4j 数据保存在 Docker named volume，不会写入 Git。
+Compose 默认将 PostgreSQL 映射到 `127.0.0.1:5433`、Qdrant 映射到 `127.0.0.1:6333`、Neo4j Bolt 映射到 `127.0.0.1:7687`、HTTP 映射到 `127.0.0.1:7474`，本地开发凭据、数据库名、Qdrant collection 和 Neo4j 连接配置定义在 [compose.yaml](compose.yaml) 与 [.env.example](.env.example) 中。复制 [.env.example](.env.example) 为 `.env` 后，可通过 `KNOWLEDGE_SCOPE_POSTGRES_PORT`、`KNOWLEDGE_SCOPE_QDRANT_URL` 和 `KNOWLEDGE_SCOPE_NEO4J_URI` 修改连接配置；Compose 在未提供 Neo4j 密码时只使用本地开发默认值，任何共享环境都必须显式配置凭据。不要在 `.env` 中提交 secrets。Qdrant 和 Neo4j 数据保存在 Docker named volume，不会写入 Git。外部 benchmark registration 仅保存受控的逻辑 `source_ref`，不会把原始 PDF 伪装成本地 `original.pdf`；这类只读引用文档不会直接进入普通 MinerU 上传解析流程。
 
 ### 执行数据库迁移
 
@@ -211,6 +230,30 @@ uv sync --group embedding-benchmark --group reranker-benchmark
 ```
 
 后端提供 `GET /api/v1/health/qdrant` readiness 检查、`POST /api/v1/retrieval/search` dense 检索接口和 `POST /api/v1/rag/query` SSE RAG QA 接口；当前没有前端检索或聊天页面。Qdrant、模型、向量和 benchmark 运行产物均不提交到仓库。
+
+执行独立的 vector + graph hybrid 查询（不会改变 RAG 回答接口）：
+
+```bash
+uv run knowledgescope hybrid-search "说明事理时应重点说明哪些内容?" --knowledge-base-id <knowledge-base-uuid>
+```
+
+默认使用 `KNOWLEDGE_SCOPE_HYBRID_FAILURE_MODE=degraded`：一条分支失败时
+返回另一条分支并在结果中标记失败状态；需要两条分支都成功时设置为
+`strict`。相关 candidate、rerank、graph 和最终结果上限以及
+`KNOWLEDGE_SCOPE_HYBRID_RRF_K` 均可通过 `.env` 配置。该命令不接入
+`/api/v1/rag/query`，也不执行全语料图抽取。
+
+修复已有 Qdrant points 的知识库归属前，先执行只读审计：
+
+```bash
+uv run knowledgescope qdrant audit-kb
+```
+
+只有所有 `document_id` 都能在 PostgreSQL `Document` 记录中唯一映射到非空
+`knowledge_base_id` 时，才可以显式追加 `--apply`。该操作只更新 Qdrant
+payload 的 `knowledge_base_id`，不重算向量、不改变 point/chunk ID；批量写入
+不是事务，若中途失败可安全重复执行。映射不完整时命令拒绝写入，不能从
+文件名、路径或 benchmark 结构猜测知识库。
 
 检查 Neo4j 连接并显式初始化图 schema：
 

@@ -306,7 +306,13 @@ class GraphRetrievalService:
         )
         return self._resolve_seed_candidates_from_snapshots(query, knowledge_base_id, snapshots)
 
-    def search(self, query: str, knowledge_base_id: UUID) -> GraphRetrievalResult:
+    def search(
+        self,
+        query: str,
+        knowledge_base_id: UUID,
+        *,
+        document_id: UUID | None = None,
+    ) -> GraphRetrievalResult:
         """Return deterministic, bounded source evidence for one KB-scoped query."""
 
         if not query.strip():
@@ -535,6 +541,8 @@ class GraphRetrievalService:
                 item.evidence.evidence_id,
             )
         )
+        if document_id is not None:
+            items = [item for item in items if item.evidence.document_id == document_id]
         return GraphRetrievalResult(
             query=query,
             knowledge_base_id=knowledge_base_id,
