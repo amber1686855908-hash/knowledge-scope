@@ -57,6 +57,10 @@ data/benchmarks/a3-6/
 data/evaluation/a3-7/
 data/benchmarks/a3-7/
 
+# Local A4.1 derived evidence artifacts and representation indexes
+data/evidence/
+data/evaluation/a4-1/
+
 # IDE settings
 .idea/
 .vscode/

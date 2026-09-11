@@ -11,9 +11,18 @@ import pytest
 from fastapi import Request
 from httpx import AsyncClient, Response
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from knowledge_scope.api.documents import _delete_document_vectors
+from knowledge_scope.api.documents import _delete_document_vectors, delete_document
+from knowledge_scope.documents.models import (
+    DOCUMENT_MEDIA_TYPE_PDF,
+    DOCUMENT_STATUS_REGISTERED,
+    DOCUMENT_STORAGE_KIND_EXTERNAL_REFERENCE,
+    Document,
+)
 from knowledge_scope.documents.storage import storage_key_for_document
+from knowledge_scope.evidence.lifecycle import EVIDENCE_DIRECTORY_NAME
+from knowledge_scope.knowledge_bases.models import KnowledgeBase
 
 VALID_PDF = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
@@ -316,12 +325,15 @@ async def test_delete_removes_parsing_and_chunking_artifacts_with_document(
     stored_path = test_data_dir / storage_key_for_document(knowledge_base_id, document_id)
     parsing_dir = test_data_dir / "parsing" / str(document_id)
     chunking_dir = test_data_dir / "chunking" / str(document_id)
+    evidence_dir = test_data_dir / EVIDENCE_DIRECTORY_NAME / str(document_id)
     (parsing_dir / "mineru" / "images").mkdir(parents=True)
     (chunking_dir / "chunks.json").parent.mkdir(parents=True)
     (parsing_dir / "canonical.json").write_text("{}", encoding="utf-8")
     (parsing_dir / "manifest.json").write_text("{}", encoding="utf-8")
     (parsing_dir / "mineru" / "images" / "image.png").write_bytes(b"asset")
     (chunking_dir / "chunks.json").write_text("chunks", encoding="utf-8")
+    (evidence_dir / "evidence.json").parent.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / "evidence.json").write_text("evidence", encoding="utf-8")
 
     response = await client.delete(
         f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}"
@@ -331,6 +343,7 @@ async def test_delete_removes_parsing_and_chunking_artifacts_with_document(
     assert not stored_path.exists()
     assert not parsing_dir.exists()
     assert not chunking_dir.exists()
+    assert not evidence_dir.exists()
     assert not list((test_data_dir / "documents").glob(".delete-*"))
     assert (
         await client.get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}")
@@ -361,6 +374,72 @@ async def test_qdrant_cleanup_runs_outside_the_event_loop_thread() -> None:
 
 
 @pytest.mark.anyio
+async def test_delete_external_reference_cleans_evidence_without_documents_root(
+    postgres_test_engine: AsyncEngine,
+    tmp_path: Path,
+) -> None:
+    knowledge_base_id = uuid4()
+    document_id = uuid4()
+    data_dir = tmp_path / "data"
+    evidence_dir = data_dir / EVIDENCE_DIRECTORY_NAME / str(document_id)
+    evidence_dir.mkdir(parents=True)
+    (evidence_dir / "evidence.json").write_text("evidence", encoding="utf-8")
+
+    factory = async_sessionmaker(postgres_test_engine, expire_on_commit=False)
+    async with factory() as session:
+        session.add(KnowledgeBase(id=knowledge_base_id, name="external evidence"))
+        await session.flush()
+        session.add(
+            Document(
+                id=document_id,
+                knowledge_base_id=knowledge_base_id,
+                original_filename="external.pdf",
+                storage_key=None,
+                storage_kind=DOCUMENT_STORAGE_KIND_EXTERNAL_REFERENCE,
+                source_ref="benchmark/test/external.pdf",
+                media_type=DOCUMENT_MEDIA_TYPE_PDF,
+                size_bytes=1,
+                sha256="c" * 64,
+                status=DOCUMENT_STATUS_REGISTERED,
+            )
+        )
+        await session.commit()
+
+    class EmptyGraphStore:
+        def delete_document(self, *_: object, **__: object) -> None:
+            return None
+
+    class EmptyVectorStore:
+        def delete_document(self, *_: object, **__: object) -> None:
+            return None
+
+    request = cast(
+        Request,
+        SimpleNamespace(
+            app=SimpleNamespace(
+                state=SimpleNamespace(
+                    settings=SimpleNamespace(data_dir=data_dir),
+                    graph_store=EmptyGraphStore(),
+                    vector_store=EmptyVectorStore(),
+                )
+            )
+        ),
+    )
+    async with factory() as session:
+        response = await delete_document(knowledge_base_id, document_id, request, session)
+
+    assert response.status_code == 204
+    assert not evidence_dir.exists()
+    assert not (data_dir / "documents").exists()
+
+    async with factory() as session:
+        knowledge_base = await session.get(KnowledgeBase, knowledge_base_id)
+        assert knowledge_base is not None
+        await session.delete(knowledge_base)
+        await session.commit()
+
+
+@pytest.mark.anyio
 async def test_delete_restores_source_and_parsing_artifacts_when_database_delete_fails(
     client: AsyncClient,
     test_data_dir: Path,
@@ -373,11 +452,14 @@ async def test_delete_restores_source_and_parsing_artifacts_when_database_delete
     stored_path = test_data_dir / storage_key_for_document(knowledge_base_id, document_id)
     parsing_dir = test_data_dir / "parsing" / str(document_id)
     chunking_dir = test_data_dir / "chunking" / str(document_id)
+    evidence_dir = test_data_dir / EVIDENCE_DIRECTORY_NAME / str(document_id)
     (parsing_dir / "mineru").mkdir(parents=True)
     chunking_dir.mkdir(parents=True)
+    evidence_dir.mkdir(parents=True)
     (parsing_dir / "canonical.json").write_text("canonical", encoding="utf-8")
     (parsing_dir / "mineru" / "raw.json").write_text("raw", encoding="utf-8")
     (chunking_dir / "chunks.json").write_text("chunks", encoding="utf-8")
+    (evidence_dir / "evidence.json").write_text("evidence", encoding="utf-8")
 
     async def fail_commit(_session: object) -> None:
         raise SQLAlchemyError("simulated database failure")
@@ -394,6 +476,7 @@ async def test_delete_restores_source_and_parsing_artifacts_when_database_delete
     assert (parsing_dir / "canonical.json").read_text(encoding="utf-8") == "canonical"
     assert (parsing_dir / "mineru" / "raw.json").read_text(encoding="utf-8") == "raw"
     assert (chunking_dir / "chunks.json").read_text(encoding="utf-8") == "chunks"
+    assert (evidence_dir / "evidence.json").read_text(encoding="utf-8") == "evidence"
     assert not list((test_data_dir / "documents").glob(".delete-*"))
     assert (
         await client.get(f"/api/v1/knowledge-bases/{knowledge_base_id}/documents/{document_id}")

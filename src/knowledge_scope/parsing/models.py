@@ -50,6 +50,8 @@ class BlockBase(_CanonicalBaseModel):
     @field_validator("block_id")
     @classmethod
     def validate_block_id(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("block_id must not have surrounding whitespace")
         return _require_non_blank(value, "block_id")
 
 
