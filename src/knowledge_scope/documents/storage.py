@@ -52,6 +52,7 @@ class TrashedResource:
     trash_path: Path
     directory: Path
     is_directory: bool
+    allowed_root: Path
 
 
 def documents_root(data_dir: Path) -> Path:
@@ -159,14 +160,58 @@ def remove_file(path: Path) -> None:
         path.unlink()
 
 
-def move_to_trash(final_path: Path, data_dir: Path) -> TrashedResource:
-    """Move an application-owned file or directory aside before DB deletion."""
+def _validate_trash_resource(resource: TrashedResource) -> None:
+    """Reject a trash record whose paths no longer stay inside its root."""
+    root = resource.allowed_root
+    if root.is_symlink() or not root.exists() or not root.is_dir():
+        raise StorageError("trash resource root is invalid")
+    resolved_root = root.resolve()
+    for path in (resource.original_path.parent, resource.directory, resource.trash_path):
+        if path.is_symlink() or not path.resolve().is_relative_to(resolved_root):
+            raise StorageError("trash resource path is outside its allowed root")
+
+
+def move_to_trash(
+    final_path: Path,
+    data_dir: Path,
+    *,
+    trash_root: Path | None = None,
+) -> TrashedResource:
+    """Move an application-owned path aside before a database deletion.
+
+    ``trash_root`` is used for derived artifacts that do not have a managed
+    document directory. Every path remains below the configured data root,
+    and a custom trash root is also the restore/delete confinement root.
+    """
+    data_root = Path(data_dir).resolve()
+    if not data_root.exists() or not data_root.is_dir():
+        raise StorageError("data directory is invalid")
     if final_path.is_symlink() or not final_path.exists():
         raise StorageError("document resource is missing or invalid")
     is_directory = final_path.is_dir()
     if not is_directory and not final_path.is_file():
         raise StorageError("document resource is invalid")
-    trash_directory = Path(tempfile.mkdtemp(prefix=".delete-", dir=documents_root(data_dir)))
+    if not final_path.resolve().is_relative_to(data_root):
+        raise StorageError("document resource is outside the data directory")
+
+    if trash_root is None:
+        candidate_root = documents_root(data_dir)
+        if candidate_root.is_symlink():
+            raise StorageError("document trash root is invalid")
+        trash_parent = candidate_root if candidate_root.exists() else data_root
+        allowed_root = data_root
+    else:
+        trash_parent = Path(trash_root)
+        allowed_root = trash_parent.resolve()
+
+    if trash_parent.is_symlink() or not trash_parent.exists() or not trash_parent.is_dir():
+        raise StorageError("trash root is invalid")
+    if not trash_parent.resolve().is_relative_to(data_root):
+        raise StorageError("trash root is outside the data directory")
+    if not final_path.resolve().is_relative_to(allowed_root):
+        raise StorageError("document resource is outside the trash root")
+
+    trash_directory = Path(tempfile.mkdtemp(prefix=".delete-", dir=trash_parent))
     trash_path = trash_directory / "payload"
     try:
         os.replace(final_path, trash_path)
@@ -178,11 +223,17 @@ def move_to_trash(final_path: Path, data_dir: Path) -> TrashedResource:
         trash_path=trash_path,
         directory=trash_directory,
         is_directory=is_directory,
+        allowed_root=allowed_root,
     )
 
 
 def restore_from_trash(trashed: TrashedResource) -> None:
     """Restore a moved file or directory after a failed database deletion."""
+    _validate_trash_resource(trashed)
+    if trashed.original_path.exists() or trashed.original_path.is_symlink():
+        raise StorageError("trash restore destination is already occupied")
+    if not trashed.trash_path.exists():
+        raise StorageError("trash resource is missing")
     trashed.original_path.parent.mkdir(parents=True, exist_ok=True)
     os.replace(trashed.trash_path, trashed.original_path)
     trashed.directory.rmdir()
@@ -190,6 +241,7 @@ def restore_from_trash(trashed: TrashedResource) -> None:
 
 def permanently_remove_trash(trashed: TrashedResource) -> None:
     """Delete a committed file or directory and clean its empty staging parents."""
+    _validate_trash_resource(trashed)
     if trashed.is_directory:
         shutil.rmtree(trashed.trash_path)
     else:

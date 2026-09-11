@@ -16,7 +16,18 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from knowledge_scope.documents.models import DOCUMENT_STORAGE_KIND_MANAGED, Document
-from knowledge_scope.documents.storage import StorageError, filesystem_path_for_storage_key
+from knowledge_scope.documents.storage import (
+    StorageError,
+    TrashedResource,
+    filesystem_path_for_storage_key,
+    move_to_trash,
+    permanently_remove_trash,
+    restore_from_trash,
+)
+from knowledge_scope.evidence.lifecycle import (
+    EvidenceArtifactError,
+    move_evidence_artifact_to_trash,
+)
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
 
@@ -111,19 +122,62 @@ def _restore_promoted_artifacts(final_dir: Path, backup_dir: Path | None) -> Non
         ) from error
 
 
-def _invalidate_chunking_artifacts(document_id: UUID, settings: Settings) -> None:
-    """Remove derived chunks only after a new canonical artifact is promoted."""
+def _invalidate_chunking_artifacts(
+    document_id: UUID,
+    settings: Settings,
+) -> TrashedResource | None:
+    """Quarantine derived chunks until the new canonical state is committed."""
     chunking_path = Path(settings.data_dir).resolve() / CHUNKING_DIRECTORY_NAME / str(document_id)
     if not chunking_path.exists() and not chunking_path.is_symlink():
-        return
+        return None
     if chunking_path.is_symlink() or not chunking_path.is_dir():
         raise DocumentParseError("chunking artifact directory is invalid")
     try:
-        shutil.rmtree(chunking_path)
-    except FileNotFoundError:
-        return
-    except OSError as error:
+        return move_to_trash(chunking_path, settings.data_dir)
+    except (OSError, StorageError) as error:
         raise DocumentParseError("chunk artifacts could not be invalidated") from error
+
+
+def _invalidate_evidence_artifacts(
+    document_id: UUID,
+    settings: Settings,
+) -> TrashedResource | None:
+    """Quarantine derived representations until the new canonical state is committed."""
+    try:
+        return move_evidence_artifact_to_trash(settings.data_dir, document_id)
+    except EvidenceArtifactError as error:
+        raise DocumentParseError("evidence artifacts could not be invalidated") from error
+
+
+def _restore_reparse_derived_artifacts(
+    resources: tuple[TrashedResource | None, ...],
+) -> None:
+    """Restore every derived artifact quarantined during a failed reparse."""
+    restore_error: BaseException | None = None
+    for resource in reversed(resources):
+        if resource is None:
+            continue
+        try:
+            restore_from_trash(resource)
+        except (OSError, StorageError) as error:
+            restore_error = restore_error or error
+    if restore_error is not None:
+        raise DocumentParseError(
+            "derived artifacts could not be restored after reparse failure"
+        ) from restore_error
+
+
+def _discard_reparse_derived_artifacts(
+    resources: tuple[TrashedResource | None, ...],
+) -> None:
+    """Best-effort cleanup of old derived artifacts after a successful reparse."""
+    for resource in resources:
+        if resource is None:
+            continue
+        try:
+            permanently_remove_trash(resource)
+        except (OSError, StorageError):
+            continue
 
 
 def _artifact_root(settings: Settings) -> Path:
@@ -237,11 +291,25 @@ def parse_document_file(
             + "\n",
         )
         previous_dir = _promote_staging(staging_dir, final_dir)
+        trashed_chunking: TrashedResource | None = None
+        trashed_evidence: TrashedResource | None = None
         try:
-            _invalidate_chunking_artifacts(document_id, settings)
-        except DocumentParseError:
-            _restore_promoted_artifacts(final_dir, previous_dir)
+            trashed_chunking = _invalidate_chunking_artifacts(document_id, settings)
+            trashed_evidence = _invalidate_evidence_artifacts(document_id, settings)
+        except DocumentParseError as error:
+            rollback_error: DocumentParseError | None = None
+            try:
+                _restore_promoted_artifacts(final_dir, previous_dir)
+            except DocumentParseError as restore_error:
+                rollback_error = restore_error
+            try:
+                _restore_reparse_derived_artifacts((trashed_chunking, trashed_evidence))
+            except DocumentParseError as restore_error:
+                rollback_error = rollback_error or restore_error
+            if rollback_error is not None:
+                raise rollback_error from error
             raise
+        _discard_reparse_derived_artifacts((trashed_evidence, trashed_chunking))
         if previous_dir is not None:
             shutil.rmtree(previous_dir, ignore_errors=True)
     except DocumentParseError:

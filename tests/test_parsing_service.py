@@ -5,8 +5,10 @@ from uuid import UUID
 
 import pytest
 
+from knowledge_scope.evidence import evidence_artifact_path, rebuild_evidence_artifact
 from knowledge_scope.parsing.mineru_adapter import AdapterStats
 from knowledge_scope.parsing.mineru_runner import MineruRunnerError, MineruRunResult
+from knowledge_scope.parsing.models import CanonicalDocument
 from knowledge_scope.parsing.service import (
     MAX_MANIFEST_WARNING_COUNT,
     MAX_MANIFEST_WARNING_LENGTH,
@@ -122,6 +124,31 @@ def test_successful_reparse_removes_existing_chunk_artifacts(
     assert not list((settings.data_dir / "parsing").glob(".*"))
 
 
+def test_successful_reparse_removes_existing_evidence_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "source.pdf"
+    source_path.write_bytes(b"%PDF-real-source")
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data")
+    monkeypatch.setattr("knowledge_scope.parsing.service.run_mineru", _fake_mineru_run)
+
+    parse_document_file(DOCUMENT_ID, source_path, _sha256(source_path), settings)
+    canonical = CanonicalDocument.model_validate_json(
+        (settings.data_dir / "parsing" / str(DOCUMENT_ID) / "canonical.json").read_bytes()
+    )
+    rebuild_evidence_artifact(
+        settings.data_dir,
+        canonical,
+        UUID("22222222-2222-2222-2222-222222222222"),
+    )
+    assert evidence_artifact_path(settings.data_dir, DOCUMENT_ID).exists()
+
+    parse_document_file(DOCUMENT_ID, source_path, _sha256(source_path), settings)
+
+    assert not evidence_artifact_path(settings.data_dir, DOCUMENT_ID).exists()
+
+
 def test_failed_reparse_leaves_previous_parsing_and_chunking_artifacts_untouched(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -134,6 +161,13 @@ def test_failed_reparse_leaves_previous_parsing_and_chunking_artifacts_untouched
 
     parsing_dir = settings.data_dir / "parsing" / str(DOCUMENT_ID)
     canonical_before = (parsing_dir / "canonical.json").read_bytes()
+    canonical = CanonicalDocument.model_validate_json(canonical_before)
+    rebuild_evidence_artifact(
+        settings.data_dir,
+        canonical,
+        UUID("22222222-2222-2222-2222-222222222222"),
+    )
+    evidence_path = evidence_artifact_path(settings.data_dir, DOCUMENT_ID)
     chunking_dir = settings.data_dir / "chunking" / str(DOCUMENT_ID)
     chunking_dir.mkdir(parents=True)
     chunks_path = chunking_dir / "chunks.json"
@@ -149,7 +183,52 @@ def test_failed_reparse_leaves_previous_parsing_and_chunking_artifacts_untouched
 
     assert (parsing_dir / "canonical.json").read_bytes() == canonical_before
     assert chunks_path.read_bytes() == b"old chunks"
+    assert evidence_path.exists()
     assert not list((settings.data_dir / "parsing").glob(".*"))
+
+
+def test_failed_evidence_invalidation_restores_complete_previous_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "source.pdf"
+    source_path.write_bytes(b"%PDF-real-source")
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data")
+    monkeypatch.setattr("knowledge_scope.parsing.service.run_mineru", _fake_mineru_run)
+    parse_document_file(DOCUMENT_ID, source_path, _sha256(source_path), settings)
+
+    parsing_dir = settings.data_dir / "parsing" / str(DOCUMENT_ID)
+    canonical_before = (parsing_dir / "canonical.json").read_bytes()
+    canonical = CanonicalDocument.model_validate_json(canonical_before)
+    rebuild_evidence_artifact(
+        settings.data_dir,
+        canonical,
+        UUID("22222222-2222-2222-2222-222222222222"),
+    )
+    evidence_path = evidence_artifact_path(settings.data_dir, DOCUMENT_ID)
+    evidence_before = evidence_path.read_bytes()
+    chunking_dir = settings.data_dir / "chunking" / str(DOCUMENT_ID)
+    chunking_dir.mkdir(parents=True)
+    chunks_path = chunking_dir / "chunks.json"
+    chunks_path.write_bytes(b"old chunks")
+
+    def fail_evidence_invalidation(*_: object, **__: object) -> None:
+        raise DocumentParseError("injected evidence invalidation failure")
+
+    monkeypatch.setattr(
+        "knowledge_scope.parsing.service._invalidate_evidence_artifacts",
+        fail_evidence_invalidation,
+    )
+
+    with pytest.raises(DocumentParseError, match="injected evidence invalidation failure"):
+        parse_document_file(DOCUMENT_ID, source_path, _sha256(source_path), settings)
+
+    assert (parsing_dir / "canonical.json").read_bytes() == canonical_before
+    assert chunks_path.read_bytes() == b"old chunks"
+    assert evidence_path.read_bytes() == evidence_before
+    assert not list((settings.data_dir / "parsing").glob(".*"))
+    assert not list((settings.data_dir / "documents").glob(".delete-*"))
+    assert not list((settings.data_dir / "evidence").glob(".delete-*"))
 
 
 def test_failed_parse_does_not_leave_a_successful_artifact(

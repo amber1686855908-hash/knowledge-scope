@@ -45,6 +45,10 @@ from knowledge_scope.documents.storage import (
     stage_pdf,
     storage_key_for_document,
 )
+from knowledge_scope.evidence.lifecycle import (
+    EvidenceArtifactError,
+    move_evidence_artifact_to_trash,
+)
 from knowledge_scope.graph.neo4j import GraphStoreError
 from knowledge_scope.parsing.service import PARSING_DIRECTORY_NAME
 from knowledge_scope.retrieval.qdrant import VectorStoreError
@@ -83,7 +87,7 @@ def _restore_deleted_resources(resources: tuple[TrashedResource | None, ...]) ->
             continue
         try:
             restore_from_trash(resource)
-        except OSError:
+        except (OSError, StorageError):
             restoration_failed = True
     return restoration_failed
 
@@ -273,6 +277,7 @@ async def delete_document(
     trashed_source: TrashedResource | None = None
     trashed_parsing: TrashedResource | None = None
     trashed_chunking: TrashedResource | None = None
+    trashed_evidence: TrashedResource | None = None
     try:
         if document.storage_kind == DOCUMENT_STORAGE_KIND_MANAGED:
             if document.storage_key is None:
@@ -295,9 +300,11 @@ async def delete_document(
             if chunking_path.is_symlink() or not chunking_path.is_dir():
                 raise StorageError("chunking artifact directory is invalid")
             trashed_chunking = move_to_trash(chunking_path, settings.data_dir)
-    except (OSError, StorageError):
+
+        trashed_evidence = move_evidence_artifact_to_trash(settings.data_dir, document.id)
+    except (OSError, StorageError, EvidenceArtifactError):
         restoration_failed = _restore_deleted_resources(
-            (trashed_source, trashed_parsing, trashed_chunking)
+            (trashed_source, trashed_parsing, trashed_chunking, trashed_evidence)
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -311,7 +318,9 @@ async def delete_document(
         await session.commit()
     except SQLAlchemyError:
         await session.rollback()
-        if _restore_deleted_resources((trashed_source, trashed_parsing, trashed_chunking)):
+        if _restore_deleted_resources(
+            (trashed_source, trashed_parsing, trashed_chunking, trashed_evidence)
+        ):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="文档删除失败, 且文件恢复失败",
@@ -324,12 +333,12 @@ async def delete_document(
     await _delete_document_graph(request, knowledge_base_id, document.id)
 
     cleanup_failed = False
-    for resource in (trashed_chunking, trashed_parsing, trashed_source):
+    for resource in (trashed_evidence, trashed_chunking, trashed_parsing, trashed_source):
         if resource is None:
             continue
         try:
             permanently_remove_trash(resource)
-        except OSError:
+        except (OSError, StorageError):
             cleanup_failed = True
     if cleanup_failed:
         raise HTTPException(
