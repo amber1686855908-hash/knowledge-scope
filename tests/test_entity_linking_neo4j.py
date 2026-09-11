@@ -373,6 +373,46 @@ def test_real_neo4j_reconciliation_preserves_independent_support() -> None:
 
 
 @pytest.mark.integration
+def test_real_neo4j_delete_handles_shared_membership_within_document() -> None:
+    """Deleting a document tolerates several decisions sharing one membership."""
+
+    pytest.importorskip("neo4j")
+    if os.environ.get("KNOWLEDGE_SCOPE_RUN_NEO4J_INTEGRATION") != "1":
+        pytest.skip("set KNOWLEDGE_SCOPE_RUN_NEO4J_INTEGRATION=1 to run Neo4j integration")
+    from knowledge_scope.shared.config import get_settings
+
+    settings = get_settings()
+    if settings.neo4j_password is None or not settings.neo4j_password.get_secret_value():
+        pytest.skip("configure KNOWLEDGE_SCOPE_NEO4J_PASSWORD for Neo4j integration")
+
+    first = _entity("同文档实体甲", DOC_A)
+    second = _entity("同文档实体乙", DOC_A)
+    third = _entity("同文档实体丙", DOC_A)
+    run = _linked_run(first, second, third)
+    store = Neo4jGraphStore(settings)
+    try:
+        store.ensure_schema()
+        store.delete_document(DOC_A, knowledge_base_id=KB)
+        for entity in (first, second, third):
+            store.upsert_entity(entity)
+        assert run.stats.link_count == 3
+        store.upsert_linking_result(
+            run.canonical_entities,
+            run.decisions,
+            run.mappings,
+        )
+
+        deleted = store.delete_document_links(KB, DOC_A)
+        assert deleted.decision_count == 3
+        assert deleted.mapping_count == 3
+        assert deleted.canonical_entity_count == 1
+        assert store.get_canonical_entity(run.canonical_entities[0].canonical_entity_id) is None
+    finally:
+        store.delete_document(DOC_A, knowledge_base_id=KB)
+        store.close()
+
+
+@pytest.mark.integration
 def test_real_neo4j_backfills_legacy_entity_type_for_a3_3_linking() -> None:
     """Backfill A3.1 entities before strict A3.3 type matching is used."""
 
@@ -498,7 +538,10 @@ def test_real_neo4j_linking_lifecycle() -> None:
             store._read(
                 lambda session: int(
                     session.run(
-                        "MATCH (decision:KnowledgeLinkDecision) RETURN count(decision) AS count"
+                        "MATCH (decision:KnowledgeLinkDecision "
+                        "{knowledge_base_id: $knowledge_base_id}) "
+                        "RETURN count(decision) AS count",
+                        knowledge_base_id=str(KB),
                     ).single()["count"]
                 )
             )
@@ -512,7 +555,10 @@ def test_real_neo4j_linking_lifecycle() -> None:
             store._read(
                 lambda session: int(
                     session.run(
-                        "MATCH (decision:KnowledgeLinkDecision) RETURN count(decision) AS count"
+                        "MATCH (decision:KnowledgeLinkDecision "
+                        "{knowledge_base_id: $knowledge_base_id}) "
+                        "RETURN count(decision) AS count",
+                        knowledge_base_id=str(KB),
                     ).single()["count"]
                 )
             )
@@ -525,7 +571,10 @@ def test_real_neo4j_linking_lifecycle() -> None:
             store._read(
                 lambda session: int(
                     session.run(
-                        "MATCH (decision:KnowledgeLinkDecision) RETURN count(decision) AS count"
+                        "MATCH (decision:KnowledgeLinkDecision "
+                        "{knowledge_base_id: $knowledge_base_id}) "
+                        "RETURN count(decision) AS count",
+                        knowledge_base_id=str(KB),
                     ).single()["count"]
                 )
             )

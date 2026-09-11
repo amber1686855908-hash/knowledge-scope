@@ -169,6 +169,30 @@ def test_prompt_is_versioned_and_carries_only_source_context() -> None:
     assert "relation.evidence" in messages[1].content
 
 
+def test_prompt_serialization_keeps_legacy_layout_for_full_run_compatibility() -> None:
+    first = build_extraction_messages(_chunk())
+    second_chunk = _chunk("另一段可抽取的教材内容。 ").model_copy(
+        update={"page_start": 8, "page_end": 9, "section_path": ["另一章节"]}
+    )
+    second = build_extraction_messages(second_chunk)
+    corrected = build_extraction_messages(_chunk(), correction="只返回合法 JSON。")
+    marker = "--- BEGIN CHUNK ---"
+    first_prefix, first_variable = first[1].content.split(marker, maxsplit=1)
+    second_prefix, second_variable = second[1].content.split(marker, maxsplit=1)
+    corrected_prefix, corrected_variable = corrected[1].content.split(marker, maxsplit=1)
+
+    assert first[0].content == second[0].content
+    assert first[1].content == build_extraction_messages(_chunk())[1].content
+    assert "页面：2\n章节：物质组成\n" in first_prefix
+    assert "页面：8-9\n章节：另一章节\n" in second_prefix
+    assert "页面：" not in first_variable
+    assert "章节：" not in first_variable
+    assert "水由氢和氧组成" in first_variable
+    assert "另一段可抽取的教材内容" in second_variable
+    assert "纠正要求：只返回合法 JSON。" in corrected_prefix
+    assert "纠正要求：" not in corrected_variable
+
+
 @pytest.mark.anyio
 async def test_valid_output_becomes_grounded_graph_objects_with_application_metadata() -> None:
     gateway = _Gateway([_valid_output()])
@@ -186,6 +210,7 @@ async def test_valid_output_becomes_grounded_graph_objects_with_application_meta
     assert result.entities[0].provenance[0].extraction_provenance.version == (
         EXTRACTION_PROMPT_VERSION
     )
+    assert gateway.requests[0].max_tokens == 1024
     assert result.relations[0].source_entity_id == entity_id_for(
         "水",
         "物质",
@@ -210,7 +235,7 @@ async def test_empty_output_is_valid_and_does_not_create_graph_facts() -> None:
 
 
 @pytest.mark.anyio
-async def test_truncated_response_is_rejected_and_retry_receives_correction() -> None:
+async def test_truncated_response_escalates_budget_without_corrective_retry() -> None:
     gateway = _ResultGateway(
         [
             LLMResult(
@@ -241,7 +266,100 @@ async def test_truncated_response_is_rejected_and_retry_receives_correction() ->
         "truncated_response",
         "empty_valid_extraction",
     ]
-    assert "finish_reason=length" in gateway.requests[1].messages[1].content
+    assert [request.max_tokens for request in gateway.requests] == [1024, 2048]
+    assert [attempt.max_tokens for attempt in result.attempts] == [1024, 2048]
+    assert result.stats.truncation_retries == 1
+    assert result.stats.parse_failures == 0
+    assert "finish_reason=length" not in gateway.requests[1].messages[1].content
+
+
+@pytest.mark.anyio
+async def test_repeated_truncation_escalates_to_final_budget() -> None:
+    gateway = _ResultGateway(
+        [
+            LLMResult(
+                text="",
+                provider="fake-provider",
+                model="fake-model",
+                input_tokens=20,
+                output_tokens=1024,
+                latency_ms=1.5,
+                finish_reason="length",
+            ),
+            LLMResult(
+                text="",
+                provider="fake-provider",
+                model="fake-model",
+                input_tokens=20,
+                output_tokens=2048,
+                latency_ms=1.5,
+                finish_reason="length",
+            ),
+            LLMResult(
+                text='{"entities": [], "relations": []}',
+                provider="fake-provider",
+                model="fake-model",
+                input_tokens=20,
+                output_tokens=5,
+                latency_ms=1.5,
+                finish_reason="stop",
+            ),
+        ]
+    )
+
+    result = await _service(gateway).extract_chunk(_chunk(), knowledge_base_id=KNOWLEDGE_BASE_ID)
+
+    assert result.status == "empty"
+    assert [request.max_tokens for request in gateway.requests] == [1024, 2048, 4096]
+    assert [attempt.max_tokens for attempt in result.attempts] == [1024, 2048, 4096]
+    assert result.stats.truncation_retries == 2
+    assert result.stats.parse_failures == 0
+
+
+@pytest.mark.anyio
+async def test_final_truncation_ceiling_is_a_terminal_failure_without_correction() -> None:
+    gateway = _ResultGateway(
+        [
+            LLMResult(
+                text="",
+                provider="fake-provider",
+                model="fake-model",
+                input_tokens=20,
+                output_tokens=1024,
+                latency_ms=1.5,
+                finish_reason="length",
+            ),
+            LLMResult(
+                text="",
+                provider="fake-provider",
+                model="fake-model",
+                input_tokens=20,
+                output_tokens=2048,
+                latency_ms=1.5,
+                finish_reason="length",
+            ),
+            LLMResult(
+                text="",
+                provider="fake-provider",
+                model="fake-model",
+                input_tokens=20,
+                output_tokens=4096,
+                latency_ms=1.5,
+                finish_reason="length",
+            ),
+        ]
+    )
+
+    result = await _service(gateway).extract_chunk(_chunk(), knowledge_base_id=KNOWLEDGE_BASE_ID)
+
+    assert result.status == "schema_rejected"
+    assert result.error == "structured output was truncated"
+    assert [request.max_tokens for request in gateway.requests] == [1024, 2048, 4096]
+    assert result.attempts[-1].category == "truncated_response"
+    assert result.stats.truncation_retries == 2
+    assert result.stats.parse_failures == 0
+    assert result.stats.schema_failures == 0
+    assert all("上一轮" not in request.messages[1].content for request in gateway.requests)
 
 
 @pytest.mark.anyio
@@ -253,6 +371,8 @@ async def test_parse_failure_retries_once_and_schema_failure_is_reported() -> No
     assert result.status == "accepted"
     assert result.stats.attempts == 2
     assert result.stats.parse_failures == 1
+    assert [request.max_tokens for request in gateway.requests] == [1024, 1024]
+    assert result.stats.truncation_retries == 0
     assert gateway.requests[0].response_format is not None
     assert gateway.requests[0].response_format.type == "json_object"
     assert gateway.requests[0].reasoning == "disabled"

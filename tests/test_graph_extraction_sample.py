@@ -254,3 +254,5 @@ async def test_sample_summary_counts_schema_failures_and_provider_calls(tmp_path
     assert summary["parse_failure_count"] == 0
     assert summary["schema_rejection_count"] == 1
     assert summary["provider_calls"] == 1
+    assert summary["truncation_retry_count"] == 0
+    assert summary["corrective_retry_count"] == 0

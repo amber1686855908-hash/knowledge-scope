@@ -12,9 +12,11 @@ from pathlib import Path
 from uuid import UUID
 
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from knowledge_scope import __version__
 from knowledge_scope.chunking.service import ChunkingError, chunk_document_by_id
+from knowledge_scope.documents.models import DOCUMENT_STATUS_REGISTERED, Document
 from knowledge_scope.documents.registration import (
     DEFAULT_CANONICAL_ROOT as DEFAULT_REGISTRATION_CANONICAL_ROOT,
 )
@@ -50,6 +52,34 @@ from knowledge_scope.evaluation.entity_linking_sample import (
 )
 from knowledge_scope.evaluation.entity_linking_sample import (
     run_linking_review_sample,
+)
+from knowledge_scope.evaluation.graph_corpus_build import (
+    DEFAULT_CHUNK_INDEX as DEFAULT_GRAPH_CORPUS_CHUNK_INDEX,
+)
+from knowledge_scope.evaluation.graph_corpus_build import (
+    DEFAULT_CORPUS_MANIFEST as DEFAULT_GRAPH_CORPUS_MANIFEST,
+)
+from knowledge_scope.evaluation.graph_corpus_build import (
+    DEFAULT_ESTIMATE_SUMMARIES,
+    GraphCorpusBuildError,
+    GraphCorpusRunner,
+    audit_corpus_files,
+    build_corpus_input_snapshot,
+    estimate_full_run,
+    iter_corpus_documents,
+    load_corpus_input_snapshot,
+    read_graph_coverage,
+    select_document_ids,
+    validate_corpus_input_snapshot,
+)
+from knowledge_scope.evaluation.graph_corpus_build import (
+    DEFAULT_EVAL_DATASET as DEFAULT_GRAPH_CORPUS_EVAL_DATASET,
+)
+from knowledge_scope.evaluation.graph_corpus_build import (
+    DEFAULT_INPUT_SNAPSHOT as DEFAULT_GRAPH_CORPUS_INPUT_SNAPSHOT,
+)
+from knowledge_scope.evaluation.graph_corpus_build import (
+    DEFAULT_OUTPUT as DEFAULT_GRAPH_CORPUS_OUTPUT,
 )
 from knowledge_scope.evaluation.graph_extraction_sample import (
     DEFAULT_CANONICAL_ROOT as DEFAULT_EXTRACTION_CANONICAL_ROOT,
@@ -110,7 +140,7 @@ from knowledge_scope.evaluation.retrieval_system_benchmark import (
 from knowledge_scope.evaluation.retrieval_system_benchmark import (
     DEFAULT_OUTPUT as DEFAULT_SYSTEM_OUTPUT,
 )
-from knowledge_scope.extraction.service import ExtractionError
+from knowledge_scope.extraction.service import ExtractionError, ExtractionService
 from knowledge_scope.graph.neo4j import GraphStoreError, Neo4jGraphStore
 from knowledge_scope.graph.retrieval import GraphRetrievalConfig
 from knowledge_scope.graph.retrieval_service import GraphRetrievalError, GraphRetrievalService
@@ -704,6 +734,125 @@ def build_parser() -> argparse.ArgumentParser:
         "--failure-mode",
         choices=("strict", "degraded"),
         help="strict fails if either branch fails; degraded returns the surviving branch",
+    )
+
+    graph_corpus_audit = subparsers.add_parser(
+        "graph-corpus-audit",
+        help="audit registered corpus, chunk coverage, and current Neo4j graph coverage",
+    )
+    graph_corpus_audit.add_argument("--knowledge-base-id", type=UUID, required=True)
+    graph_corpus_audit.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=DEFAULT_GRAPH_CORPUS_MANIFEST,
+    )
+    graph_corpus_audit.add_argument(
+        "--chunk-index",
+        type=Path,
+        default=DEFAULT_GRAPH_CORPUS_CHUNK_INDEX,
+    )
+    graph_corpus_audit.add_argument(
+        "--eval-dataset",
+        type=Path,
+        default=DEFAULT_GRAPH_CORPUS_EVAL_DATASET,
+    )
+    graph_corpus_audit.add_argument(
+        "--input-snapshot",
+        type=Path,
+        default=DEFAULT_GRAPH_CORPUS_INPUT_SNAPSHOT,
+        help="repository-safe authoritative corpus/chunk completeness snapshot",
+    )
+
+    graph_corpus_estimate = subparsers.add_parser(
+        "graph-corpus-estimate",
+        help="estimate full-corpus extraction cost from existing A3.2 samples",
+    )
+    graph_corpus_estimate.add_argument(
+        "--summary",
+        type=Path,
+        nargs="+",
+        default=list(DEFAULT_ESTIMATE_SUMMARIES),
+    )
+    graph_corpus_estimate.add_argument(
+        "--target-chunks",
+        type=_positive_int,
+        help="override the target chunk count; defaults to the authoritative input snapshot",
+    )
+    graph_corpus_estimate.add_argument(
+        "--input-snapshot",
+        type=Path,
+        default=DEFAULT_GRAPH_CORPUS_INPUT_SNAPSHOT,
+        help="authoritative snapshot used for the default target chunk count",
+    )
+    graph_corpus_estimate.add_argument("--max-concurrency", type=_positive_int, default=1)
+
+    graph_corpus_build = subparsers.add_parser(
+        "graph-corpus-build",
+        help=(
+            "run bounded, resumable extraction and optional A3.3 linking over registered documents"
+        ),
+    )
+    graph_corpus_build.add_argument("--knowledge-base-id", type=UUID, required=True)
+    graph_corpus_build.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=DEFAULT_GRAPH_CORPUS_MANIFEST,
+    )
+    graph_corpus_build.add_argument(
+        "--chunk-index",
+        type=Path,
+        default=DEFAULT_GRAPH_CORPUS_CHUNK_INDEX,
+    )
+    graph_corpus_build.add_argument(
+        "--input-snapshot",
+        type=Path,
+        default=DEFAULT_GRAPH_CORPUS_INPUT_SNAPSHOT,
+        help="repository-safe authoritative corpus/chunk completeness snapshot",
+    )
+    graph_corpus_build.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_GRAPH_CORPUS_OUTPUT,
+        help="ignored runtime checkpoint and manifest directory",
+    )
+    graph_corpus_scope = graph_corpus_build.add_mutually_exclusive_group()
+    graph_corpus_scope.add_argument(
+        "--full",
+        action="store_true",
+        help="select all registered corpus documents",
+    )
+    graph_corpus_scope.add_argument(
+        "--sample-per-subject",
+        type=_positive_int,
+        default=1,
+        help="select a stable bounded number of documents per subject",
+    )
+    graph_corpus_build.add_argument("--sample-offset", type=_non_negative_int, default=0)
+    graph_corpus_build.add_argument("--max-documents", type=_positive_int)
+    graph_corpus_build.add_argument("--max-concurrency", type=_positive_int, default=1)
+    graph_corpus_build.add_argument("--link-batch-documents", type=_positive_int, default=8)
+    graph_corpus_build.add_argument("--retry-failed", action="store_true")
+    graph_corpus_build.add_argument(
+        "--reprocess",
+        action="store_true",
+        help="delete the existing graph state for each selected document before rebuilding",
+    )
+    graph_corpus_build.add_argument(
+        "--adjudicate",
+        action="store_true",
+        help="use the configured LLM only for ambiguous A3.3 linking candidates",
+    )
+    graph_corpus_build.add_argument(
+        "--persist",
+        action="store_true",
+        help="required: persist extraction/linking results through Neo4j",
+    )
+    graph_corpus_build.add_argument(
+        "--no-resume",
+        dest="resume",
+        action="store_false",
+        default=True,
+        help="refuse an existing output directory instead of resuming it",
     )
     return parser
 
@@ -1629,6 +1778,204 @@ def _run_entity_linking_sample(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _registered_document_ids(settings: Settings, knowledge_base_id: UUID) -> set[UUID]:
+    """Read registered document IDs for one Knowledge Base without loading documents."""
+
+    engine = create_database_engine(settings)
+    try:
+        try:
+            session_factory = create_session_factory(engine)
+            async with session_factory() as session:
+                result = await session.execute(
+                    select(Document.id).where(
+                        Document.knowledge_base_id == knowledge_base_id,
+                        Document.status == DOCUMENT_STATUS_REGISTERED,
+                    )
+                )
+                return set(result.scalars().all())
+        except Exception as error:
+            raise GraphCorpusBuildError(
+                "registered document audit could not read PostgreSQL"
+            ) from error
+    finally:
+        await engine.dispose()
+
+
+async def _run_graph_corpus_audit_async(args: argparse.Namespace) -> dict[str, object]:
+    """Audit corpus files and best-effort current Neo4j coverage."""
+
+    settings = get_settings()
+    registered = await _registered_document_ids(settings, args.knowledge_base_id)
+    store = Neo4jGraphStore(settings)
+    graph_snapshot = None
+    graph_available = False
+    try:
+        readiness = await asyncio.to_thread(store.readiness)
+        if readiness.status == "ready":
+            try:
+                graph_snapshot = await asyncio.to_thread(
+                    read_graph_coverage,
+                    store,
+                    args.knowledge_base_id,
+                )
+                graph_available = True
+            except GraphStoreError:
+                graph_snapshot = None
+        audit = audit_corpus_files(
+            args.knowledge_base_id,
+            corpus_manifest=args.corpus_manifest,
+            chunk_index=args.chunk_index,
+            eval_dataset=args.eval_dataset,
+            registered_document_ids=registered,
+            graph_snapshot=graph_snapshot,
+            expected_snapshot=load_corpus_input_snapshot(args.input_snapshot),
+        )
+        if not graph_available:
+            audit = audit.model_copy(update={"graph_status": "unavailable"})
+        return audit.model_dump(mode="json")
+    finally:
+        store.close()
+
+
+def _run_graph_corpus_audit(args: argparse.Namespace) -> int:
+    """Run the read-only A3.6 corpus and graph coverage audit."""
+
+    try:
+        output = asyncio.run(_run_graph_corpus_audit_async(args))
+    except (GraphCorpusBuildError, GraphStoreError, ValidationError, ValueError) as error:
+        print("graph_corpus_audit_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    print("graph_corpus_audit_status: complete")
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _run_graph_corpus_estimate(args: argparse.Namespace) -> int:
+    """Print a transparent estimate based only on existing A3.2 sample summaries."""
+
+    try:
+        target_chunks = args.target_chunks
+        if target_chunks is None:
+            target_chunks = load_corpus_input_snapshot(args.input_snapshot).chunk_count
+        estimate = estimate_full_run(
+            args.summary,
+            target_chunks=target_chunks,
+            settings=get_settings(),
+            max_concurrency=args.max_concurrency,
+        )
+    except (GraphCorpusBuildError, OSError, ValidationError, ValueError) as error:
+        print("graph_corpus_estimate_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    print("graph_corpus_estimate_status: complete")
+    print(json.dumps(estimate.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    return 0
+
+
+async def _run_graph_corpus_build_async(args: argparse.Namespace) -> dict[str, object]:
+    """Run one explicit, persistent A3.6 corpus build and close resources."""
+
+    if not args.persist:
+        raise GraphCorpusBuildError(
+            "graph-corpus-build requires --persist; use graph-corpus-audit for read-only checks"
+        )
+    settings = get_settings()
+    if settings.llm_api_key is None or not settings.llm_api_key.get_secret_value().strip():
+        raise ValueError("KNOWLEDGE_SCOPE_LLM_API_KEY is required for graph-corpus-build")
+    registered = await _registered_document_ids(settings, args.knowledge_base_id)
+    selected = select_document_ids(
+        args.corpus_manifest,
+        full=args.full,
+        sample_per_subject=args.sample_per_subject,
+        sample_offset=args.sample_offset,
+        max_documents=args.max_documents,
+    )
+    documents_for_snapshot = iter_corpus_documents(
+        args.corpus_manifest,
+        args.chunk_index,
+        selected_document_ids=selected,
+        registered_document_ids=registered,
+    )
+    actual_snapshot = build_corpus_input_snapshot(
+        documents_for_snapshot,
+        knowledge_base_id=args.knowledge_base_id,
+        corpus_manifest=args.corpus_manifest,
+        chunk_index=args.chunk_index,
+    )
+    validate_corpus_input_snapshot(
+        actual_snapshot,
+        load_corpus_input_snapshot(args.input_snapshot),
+        require_full=args.full and args.max_documents is None,
+    )
+    documents = iter_corpus_documents(
+        args.corpus_manifest,
+        args.chunk_index,
+        selected_document_ids=selected,
+        registered_document_ids=registered,
+    )
+    engine = None
+    provider = None
+    store = None
+    try:
+        engine = create_database_engine(settings)
+        provider = create_llm_provider(settings)
+        store = Neo4jGraphStore(settings)
+        await asyncio.to_thread(store.ensure_schema)
+        gateway = LLMGateway(
+            provider,
+            DatabaseUsageRecorder(create_session_factory(engine)),
+            settings,
+        )
+        runner = GraphCorpusRunner(
+            ExtractionService(gateway, settings),
+            settings,
+            knowledge_base_id=args.knowledge_base_id,
+            output_dir=args.output,
+            store=store,
+            linking_gateway=gateway if args.adjudicate else None,
+            max_concurrency=args.max_concurrency,
+            link_batch_documents=args.link_batch_documents,
+            resume=args.resume,
+            retry_failed=args.retry_failed,
+            reprocess=args.reprocess,
+            input_snapshot=actual_snapshot,
+        )
+        manifest = await runner.run(documents)
+        return manifest.model_dump(mode="json")
+    finally:
+        if store is not None:
+            store.close()
+        if provider is not None:
+            await provider.aclose()
+        if engine is not None:
+            await engine.dispose()
+
+
+def _run_graph_corpus_build(args: argparse.Namespace) -> int:
+    """Run the explicit resumable A3.6 graph-corpus build."""
+
+    try:
+        output = asyncio.run(_run_graph_corpus_build_async(args))
+    except (
+        ExtractionError,
+        GraphCorpusBuildError,
+        GraphStoreError,
+        LLMError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        print("graph_corpus_build_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("graph_corpus_build_status: interrupted", file=sys.stderr)
+        return 130
+    print("graph_corpus_build_status: complete")
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     parser = build_parser()
@@ -1670,6 +2017,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_rerank_search(args)
     if args.command == "hybrid-search":
         return _run_hybrid_search(args)
+    if args.command == "graph-corpus-audit":
+        return _run_graph_corpus_audit(args)
+    if args.command == "graph-corpus-estimate":
+        return _run_graph_corpus_estimate(args)
+    if args.command == "graph-corpus-build":
+        return _run_graph_corpus_build(args)
 
     parser.print_help()
     return 0

@@ -137,6 +137,34 @@ def test_hybrid_search_parser_requires_kb_and_exposes_bounded_overrides() -> Non
     assert args.failure_mode == "strict"
 
 
+def test_graph_corpus_commands_have_explicit_scope_and_safe_defaults() -> None:
+    audit_args = build_parser().parse_args(
+        [
+            "graph-corpus-audit",
+            "--knowledge-base-id",
+            "11111111-1111-4111-8111-111111111111",
+        ]
+    )
+    estimate_args = build_parser().parse_args(["graph-corpus-estimate"])
+    build_args = build_parser().parse_args(
+        [
+            "graph-corpus-build",
+            "--knowledge-base-id",
+            "11111111-1111-4111-8111-111111111111",
+            "--sample-per-subject",
+            "2",
+            "--persist",
+        ]
+    )
+
+    assert audit_args.chunk_index == Path("data/evaluation/a2-1/chunk_index.jsonl")
+    assert estimate_args.target_chunks is None
+    assert estimate_args.input_snapshot == Path("docs/benchmarks/a3-6-corpus-input-snapshot.json")
+    assert build_args.sample_per_subject == 2
+    assert build_args.persist is True
+    assert build_args.resume is True
+
+
 def test_qdrant_attribution_parser_defaults_to_audit_and_supports_apply() -> None:
     audit_args = build_parser().parse_args(["qdrant", "audit-kb"])
     apply_args = build_parser().parse_args(["qdrant", "audit-kb", "--apply"])

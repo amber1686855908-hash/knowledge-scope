@@ -510,8 +510,9 @@ def test_real_neo4j_graph_lifecycle() -> None:
     try:
         store.ensure_schema()
         store.ensure_schema()
-        store.delete_document(DOCUMENT_ID)
-        store.delete_document(OTHER_DOCUMENT_ID)
+        store.delete_document(DOCUMENT_ID, knowledge_base_id=KNOWLEDGE_BASE_ID)
+        store.delete_document(DOCUMENT_ID, knowledge_base_id=OTHER_KNOWLEDGE_BASE_ID)
+        store.delete_document(OTHER_DOCUMENT_ID, knowledge_base_id=KNOWLEDGE_BASE_ID)
         with pytest.raises(GraphStoreError, match="endpoints"):
             store.upsert_relation(relation_a)
 
@@ -550,32 +551,42 @@ def test_real_neo4j_graph_lifecycle() -> None:
         assert set(source_a_expected.aliases).issubset(stored_source.aliases)
         assert {f"并发别名-{index}" for index in range(100)}.issubset(stored_source.aliases)
 
-        deleted_first = store.delete_document(DOCUMENT_ID)
-        assert deleted_first.evidence_count == 3
+        deleted_first = store.delete_document(DOCUMENT_ID, knowledge_base_id=KNOWLEDGE_BASE_ID)
+        assert deleted_first.evidence_count == 2
         assert deleted_first.relation_count == 1
-        assert deleted_first.entity_count == 3
+        assert deleted_first.entity_count == 2
         assert store.get_entity(source_a.entity_id) is None
         assert store.get_entity(target_a.entity_id) is None
         assert store.get_entity(source_b.entity_id) == source_b
-        assert store.get_entity(other_kb_source.entity_id) is None
+        assert store.get_entity(other_kb_source.entity_id) == other_kb_source
         assert store.get_relation(relation_a.relation_id) is None
 
-        repeated_first = store.delete_document(DOCUMENT_ID)
+        repeated_first = store.delete_document(
+            DOCUMENT_ID,
+            knowledge_base_id=KNOWLEDGE_BASE_ID,
+        )
         assert repeated_first.evidence_count == 0
         assert repeated_first.relation_count == 0
         assert repeated_first.entity_count == 0
 
-        deleted = store.delete_document(OTHER_DOCUMENT_ID)
+        deleted = store.delete_document(
+            OTHER_DOCUMENT_ID,
+            knowledge_base_id=KNOWLEDGE_BASE_ID,
+        )
         assert deleted.evidence_count == 1
         assert deleted.relation_count == 0
         assert deleted.entity_count == 2
         assert store.get_entity(source_b.entity_id) is None
 
-        repeated = store.delete_document(OTHER_DOCUMENT_ID)
+        repeated = store.delete_document(
+            OTHER_DOCUMENT_ID,
+            knowledge_base_id=KNOWLEDGE_BASE_ID,
+        )
         assert repeated.evidence_count == 0
         assert repeated.relation_count == 0
         assert repeated.entity_count == 0
     finally:
-        store.delete_document(DOCUMENT_ID)
-        store.delete_document(OTHER_DOCUMENT_ID)
+        store.delete_document(DOCUMENT_ID, knowledge_base_id=KNOWLEDGE_BASE_ID)
+        store.delete_document(DOCUMENT_ID, knowledge_base_id=OTHER_KNOWLEDGE_BASE_ID)
+        store.delete_document(OTHER_DOCUMENT_ID, knowledge_base_id=KNOWLEDGE_BASE_ID)
         store.close()
