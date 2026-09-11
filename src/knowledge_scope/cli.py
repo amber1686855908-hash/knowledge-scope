@@ -107,6 +107,25 @@ from knowledge_scope.evaluation.graph_retrieval_sample import (
 from knowledge_scope.evaluation.graph_retrieval_sample import (
     run_graph_retrieval_review_sample,
 )
+from knowledge_scope.evaluation.hybrid_evaluation import (
+    DEFAULT_CHUNK_INDEX as DEFAULT_HYBRID_EVAL_CHUNK_INDEX,
+)
+from knowledge_scope.evaluation.hybrid_evaluation import (
+    DEFAULT_DATASET as DEFAULT_HYBRID_EVAL_DATASET,
+)
+from knowledge_scope.evaluation.hybrid_evaluation import (
+    DEFAULT_GRAPH_EXCLUSIONS,
+    DEFAULT_GRAPH_RUN_MANIFEST,
+    DEFAULT_KB_MAPPING,
+    HybridEvaluationError,
+    run_hybrid_evaluation,
+)
+from knowledge_scope.evaluation.hybrid_evaluation import (
+    DEFAULT_MATERIALIZED as DEFAULT_HYBRID_EVAL_MATERIALIZED,
+)
+from knowledge_scope.evaluation.hybrid_evaluation import (
+    DEFAULT_OUTPUT as DEFAULT_HYBRID_EVAL_OUTPUT,
+)
 from knowledge_scope.evaluation.parsing_benchmark import (
     RAW_RETENTION_VALUES,
     BenchmarkConfig,
@@ -535,6 +554,54 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_SYSTEM_OUTPUT,
         help="ignored runtime output directory",
+    )
+
+    hybrid_evaluation = subparsers.add_parser(
+        "hybrid-evaluation",
+        help="evaluate frozen A2.1 vector-only and vector-plus-graph retrieval",
+    )
+    hybrid_evaluation.add_argument("--knowledge-base-id", type=UUID, required=True)
+    hybrid_evaluation.add_argument(
+        "--split",
+        choices=("dev", "test", "both"),
+        default="both",
+        help="evaluate the frozen dev split, test split, or both",
+    )
+    hybrid_evaluation.add_argument(
+        "--chunk-index",
+        type=Path,
+        default=DEFAULT_HYBRID_EVAL_CHUNK_INDEX,
+    )
+    hybrid_evaluation.add_argument(
+        "--dataset",
+        type=Path,
+        default=DEFAULT_HYBRID_EVAL_DATASET,
+    )
+    hybrid_evaluation.add_argument(
+        "--materialized",
+        type=Path,
+        default=DEFAULT_HYBRID_EVAL_MATERIALIZED,
+    )
+    hybrid_evaluation.add_argument(
+        "--kb-mapping",
+        type=Path,
+        default=DEFAULT_KB_MAPPING,
+    )
+    hybrid_evaluation.add_argument(
+        "--graph-manifest",
+        type=Path,
+        default=DEFAULT_GRAPH_RUN_MANIFEST,
+    )
+    hybrid_evaluation.add_argument(
+        "--graph-exclusions",
+        type=Path,
+        default=DEFAULT_GRAPH_EXCLUSIONS,
+    )
+    hybrid_evaluation.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_HYBRID_EVAL_OUTPUT,
+        help="ignored per-query and aggregate output directory",
     )
 
     qdrant = subparsers.add_parser(
@@ -1264,6 +1331,33 @@ def _run_retrieval_system_benchmark(args: argparse.Namespace) -> int:
     print("retrieval_system_benchmark_status: complete")
     print(f"output: {args.output}")
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _run_hybrid_evaluation(args: argparse.Namespace) -> int:
+    """Run the read-only A3.7 vector-versus-hybrid evaluation."""
+    try:
+        aggregate = run_hybrid_evaluation(
+            knowledge_base_id=args.knowledge_base_id,
+            split=args.split,
+            chunk_index_path=args.chunk_index,
+            dataset_path=args.dataset,
+            materialized_path=args.materialized,
+            mapping_path=args.kb_mapping,
+            graph_manifest_path=args.graph_manifest,
+            exclusions_path=args.graph_exclusions,
+            output_dir=args.output,
+        )
+    except (HybridEvaluationError, GraphStoreError, ValidationError, ValueError) as error:
+        print("hybrid_evaluation_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("hybrid_evaluation_status: interrupted", file=sys.stderr)
+        return 130
+    print("hybrid_evaluation_status: complete")
+    print(f"output: {args.output}")
+    print(json.dumps(aggregate, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -2001,6 +2095,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_reranker_benchmark(args)
     if args.command == "retrieval-system-benchmark":
         return _run_retrieval_system_benchmark(args)
+    if args.command == "hybrid-evaluation":
+        return _run_hybrid_evaluation(args)
     if args.command == "qdrant":
         return _run_qdrant(args)
     if args.command == "neo4j":

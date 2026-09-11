@@ -4,7 +4,7 @@ KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，当前提供�
 
 ## 当前状态
 
-当前已完成 A3.5，Phase A3.6 提供全量图语料构建与覆盖审计基础，目前提供：
+当前已完成 A3.7，提供全量图语料构建、覆盖审计和只读混合检索评测基础，目前提供：
 
 - 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health、parse-document 和 chunk-document CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
@@ -55,6 +55,8 @@ Phase A3.5 已加入独立的 vector + graph hybrid retrieval：向量分支复�
 Phase A3.6 当前提供面向已登记 255 个 benchmark 文档和 7,524 个 A1.6 chunk 的可恢复图语料构建 runner，以及只读 corpus/graph/A2.1 覆盖审计。runner 复用 A3.2 的单 chunk grounded extraction 和 A3.3 的 bounded linking，不重新运行 MinerU，不改变 A1/A2 标注或 chunking；输入按文档流式读取，使用输入/config/pipeline fingerprint、追加式 fsynced checkpoint 和显式批次边界支持恢复、失败重试与文档重处理。只有 `accepted`、空抽取和 grounding rejection 才是成功终态，schema rejection 或其他未解决失败会阻断该文档的 linking。`graph-corpus-build` 需要显式 `--persist` 和已配置的 LLM key，默认只选每个学科一个文档；全量运行前可用 `graph-corpus-estimate` 查看基于已有样本的成本/耗时外推，`graph-corpus-audit` 用于核对登记、chunk、A2.1 和当前 Neo4j 覆盖。
 
 最终审计的运行状态为 `partial_failure`：`run_id=e926e1d3-9050-4911-89ef-1632ed0894c2`，7,513/7,524 个 chunk 达到成功终态，11 个 chunk 终态失败；246 个文档为 link-complete/graph-eligible，9 个文档被排除并保持 linking-blocked，排除文档没有 retrieval-visible partial graph state。合格图谱包含 55,098 个 local entities、27,268 个 relations、6,087 个 `KnowledgeEvidence` records/supported chunks、1,241 个 canonical entities 和 2,609 个 canonical memberships。A2.1 的冻结 108 条评测映射中，105 条为 complete graph coverage、0 条 partial、3 条 no graph coverage。这里明确区分 extraction success（7,513/7,524）、graph evidence coverage（6,087 chunks）和 graph-eligible documents（246/255）；这些运行计数不代表抽取准确率或检索效果，也不表示 100% 成功。该运行使用 `legacy-v1` prompt contract 和 `1024 → 2048 → 4096` truncation policy，运行时 checkpoint、manifest 和审计文件均位于被忽略的 `data/evaluation/a3-6/`；cache-v2 只作为未来优化，不属于本次运行。设计说明见 [A3.6 图语料构建](docs/architecture/graph-corpus-build.md)，审计口径见 [A3.6 覆盖审计报告](docs/benchmarks/a3-6-graph-corpus-build.md)。
+
+Phase A3.7 提供只读的 Vector-only 与 Vector + Graph 对照评测：复用现有 Qwen embedding、Qdrant、BGE reranker、A3.4 Graph Retriever 和 A3.5 RRF，在冻结的 A2.1 108 条评测项上记录分支排名、来源、lineage、指标和延迟；不调用答案生成 LLM，也不修改冻结标签、Qdrant 或 Neo4j。固定 profile 使用 Vector candidate/rerank `10/10`、Graph/Hybrid result limit `20/20`、`rrf_k=60` 和现有 A2.5 模型 revision；本次 test 的 H@10/ER@10 为 `0.8611 → 0.8889`，但 H@1/3/5 与 MRR 下降，dev H@10 下降、all-108 H@10 不变，因此只部分支持当前 test Top-10 的局部召回改善，不构成普遍质量结论。完整口径与结果见 [A3.7 混合检索评测](docs/benchmarks/a3-7-hybrid-evaluation.md)。
 
 当前 A1.5/A1.6 的 255 个 benchmark 文档可以通过显式的 corpus registration workflow 登记为一个指定 KnowledgeBase。该流程不从文件名、路径、学科或正文推断归属，不重新运行 MinerU、分块或 embedding，也不复制/移动源语料；登记后的 `Document` 使用 `status=registered` 和 `storage_kind=external_reference`，`storage_key` 保持为空，原有普通上传文档的本地托管语义不变。登记前会校验 255 个唯一文档、canonical artifact、7,524 个 chunk lineage、目标 KB 和所有权冲突，并在一个 PostgreSQL 事务中完成；重复执行是幂等的，冲突会整体拒绝。登记还会生成被忽略的 `data/evaluation/a3-5/a2-1-kb-mapping.jsonl`，将冻结 A2.1 的 108 个 item 映射到同一显式 KB，但不会修改冻结标注；完整的存储与升级说明见 [benchmark corpus registration](docs/architecture/benchmark-corpus-registration.md)。
 
@@ -246,6 +248,22 @@ uv run knowledgescope hybrid-search "说明事理时应重点说明哪些内容?
 `strict`。相关 candidate、rerank、graph 和最终结果上限以及
 `KNOWLEDGE_SCOPE_HYBRID_RRF_K` 均可通过 `.env` 配置。该命令不接入
 `/api/v1/rag/query`，也不执行全语料图抽取。
+
+运行 A3.7 的冻结检索对照评测（只读，不调用答案生成 LLM）：
+
+```bash
+uv run knowledgescope hybrid-evaluation \
+  --knowledge-base-id <knowledge-base-uuid> \
+  --split both
+```
+
+该命令在同一知识库和同一 Qdrant 语料上比较现有 Vector 分支与 Vector + Graph 分支，
+使用冻结的 108 条 A2.1 评测项（dev 72 / test 36），并先 fail-closed 重现 A2.5
+`qdrant_dense_bge_top10` baseline。逐查询结果和汇总写入被忽略的
+`data/evaluation/a3-7/`；不会修改 A2.1 标签、Qdrant point 或 Neo4j 图。当前 Qdrant
+规模低于 `full_scan_threshold=10000`，结果是当前规模 vector-store validation，不是
+ANN 性能 benchmark；评测不包含答案生成，Hybrid 仅在固定 test Top-10 上出现局部改善，
+不应表述为普遍检索质量提升。此前不一致的 exploratory 运行不用于比较。
 
 审计已登记语料和当前图覆盖：
 
