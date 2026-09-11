@@ -10,10 +10,12 @@ from pydantic import ValidationError
 
 from knowledge_scope.evaluation.embedding_benchmark import (
     MODEL_SPECS,
+    EmbeddingBenchmarkError,
     EmbeddingBenchmarkProtocol,
     _derive_relevant_chunks,
     _query_texts,
     load_frozen_chunk_index,
+    load_frozen_eval_cases,
 )
 from knowledge_scope.evaluation.retrieval_eval import (
     IndexedChunk,
@@ -137,3 +139,13 @@ def test_chunk_index_loader_rejects_duplicate_ids(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="duplicate chunk IDs"):
         load_frozen_chunk_index(path)
+
+
+def test_frozen_loader_rejects_duplicate_materialized_items(tmp_path: Path) -> None:
+    source = Path("data/evaluation/a2-1/retrieval-eval-v1/materialized.jsonl")
+    lines = source.read_text(encoding="utf-8").splitlines()
+    path = tmp_path / "materialized.jsonl"
+    path.write_text("\n".join([*lines, lines[0]]) + "\n", encoding="utf-8")
+
+    with pytest.raises(EmbeddingBenchmarkError, match="duplicate item ID"):
+        load_frozen_eval_cases("dev", materialized_path=path)

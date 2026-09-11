@@ -37,6 +37,9 @@ DEFAULT_DATASET = Path("docs/benchmarks/a2-1-retrieval-eval-v1.jsonl")
 DEFAULT_MATERIALIZED = Path("data/evaluation/a2-1/retrieval-eval-v1/materialized.jsonl")
 DEFAULT_OUTPUT = Path("data/evaluation/a2-2")
 SUPPORTED_SPLITS = ("dev", "test", "both")
+FROZEN_A21_SUBJECTS = frozenset(
+    {"化学", "历史", "地理", "思想政治", "数学", "物理", "生物", "英语", "语文"}
+)
 MODEL_KEYS = (
     "qwen3-embedding-0.6b",
     "qwen3-embedding-4b",
@@ -264,6 +267,103 @@ def _derive_relevant_chunks(
     return frozenset(relevant)
 
 
+def _validate_evidence_lineage(
+    item: RetrievalEvalItem,
+    chunks: Mapping[str, IndexedChunk],
+) -> None:
+    """Validate every frozen evidence reference against the A1.6 chunk index."""
+
+    for location_kind, locations in (
+        ("gold evidence", item.evidence),
+        ("query source", item.query_source),
+    ):
+        for location in locations:
+            for block_id in location.source_block_ids:
+                matching_chunks = [
+                    chunk
+                    for chunk in chunks.values()
+                    if chunk.document_id == location.document_id
+                    and block_id in chunk.source_block_ids
+                    and chunk.page_start <= location.page_number <= chunk.page_end
+                ]
+                if not matching_chunks:
+                    raise EmbeddingBenchmarkError(
+                        f"{location_kind} {location.document_id}/{block_id} is outside "
+                        f"the frozen chunk lineage"
+                    )
+
+
+def _materialized_source_keys(
+    references: Sequence[Any],
+) -> set[tuple[str, int, str]]:
+    return {
+        (str(reference.document_id), reference.page_number, reference.source_block_id)
+        for reference in references
+    }
+
+
+def _validate_materialized_item(
+    item: RetrievalEvalItem,
+    derived: MaterializedEvalItem,
+    chunks: Mapping[str, IndexedChunk],
+) -> frozenset[str]:
+    """Reject stale or denormalized materialization instead of trusting it."""
+
+    if derived.verification_status != item.verification_status:
+        raise EmbeddingBenchmarkError(f"materialized status drift: {item.item_id}")
+    if len(derived.relevant_chunk_ids) != len(set(derived.relevant_chunk_ids)):
+        raise EmbeddingBenchmarkError(f"materialized chunk IDs are duplicated: {item.item_id}")
+    expected_relevant = _derive_relevant_chunks(item, chunks)
+    materialized_relevant = frozenset(derived.relevant_chunk_ids)
+    if materialized_relevant != expected_relevant:
+        raise EmbeddingBenchmarkError(
+            f"materialized relevant chunks drift from frozen evidence: {item.item_id}"
+        )
+
+    expected_gold_keys = {
+        (str(location.document_id), location.page_number, block_id)
+        for location in item.evidence
+        for block_id in location.source_block_ids
+    }
+    materialized_gold_keys = _materialized_source_keys(derived.gold_source_blocks)
+    if len(materialized_gold_keys) != len(derived.gold_source_blocks):
+        raise EmbeddingBenchmarkError(f"materialized gold evidence is duplicated: {item.item_id}")
+    if materialized_gold_keys != expected_gold_keys:
+        raise EmbeddingBenchmarkError(f"materialized gold evidence drift: {item.item_id}")
+    covered_keys = _materialized_source_keys(derived.covered_source_blocks)
+    uncovered_keys = _materialized_source_keys(derived.uncovered_source_blocks)
+    if len(covered_keys) != len(derived.covered_source_blocks) or len(uncovered_keys) != len(
+        derived.uncovered_source_blocks
+    ):
+        raise EmbeddingBenchmarkError(
+            f"materialized evidence coverage is duplicated: {item.item_id}"
+        )
+    if covered_keys & uncovered_keys or covered_keys | uncovered_keys != expected_gold_keys:
+        raise EmbeddingBenchmarkError(
+            f"materialized evidence coverage is inconsistent: {item.item_id}"
+        )
+    if any(chunk_id not in chunks for chunk_id in materialized_relevant):
+        raise EmbeddingBenchmarkError(f"item references a missing chunk: {item.item_id}")
+    expected_covered = {
+        (document_id, page_number, block_id)
+        for document_id, page_number, block_id in expected_gold_keys
+        if any(
+            chunk_id in materialized_relevant
+            and document_id == str(chunks[chunk_id].document_id)
+            and block_id in chunks[chunk_id].source_block_ids
+            and chunks[chunk_id].page_start <= page_number <= chunks[chunk_id].page_end
+            for chunk_id in materialized_relevant
+        )
+    }
+    if covered_keys != expected_covered:
+        raise EmbeddingBenchmarkError(
+            f"materialized covered evidence is inconsistent: {item.item_id}"
+        )
+    if derived.all_gold_blocks_covered != (not bool(uncovered_keys)):
+        raise EmbeddingBenchmarkError(f"materialized coverage flag drift: {item.item_id}")
+    return materialized_relevant
+
+
 def load_frozen_eval_cases(
     split: SplitName,
     *,
@@ -282,16 +382,25 @@ def load_frozen_eval_cases(
         raise EmbeddingBenchmarkError("frozen A2.1 dataset does not have a 72/36 split")
     if any(record.item.verification_status != "verified" for record in records):
         raise EmbeddingBenchmarkError("frozen A2.1 dataset contains a non-verified item")
+    item_ids = [record.item.item_id for record in records]
+    if len(item_ids) != len(set(item_ids)):
+        raise EmbeddingBenchmarkError("frozen A2.1 dataset contains duplicate item IDs")
+    if set(record.item.subject for record in records) != FROZEN_A21_SUBJECTS:
+        raise EmbeddingBenchmarkError("frozen A2.1 dataset does not cover the 9 subjects")
+    for record in records:
+        _validate_evidence_lineage(record.item, chunks)
 
     materialized: dict[str, MaterializedEvalItem] = {}
     if materialized_path.is_file():
-        materialized = {
-            value.item_id: value
-            for value in (
-                MaterializedEvalItem.model_validate(record)
-                for record in _read_jsonl(materialized_path)
-            )
-        }
+        for raw_record in _read_jsonl(materialized_path):
+            value = MaterializedEvalItem.model_validate(raw_record)
+            if value.item_id in materialized:
+                raise EmbeddingBenchmarkError(
+                    f"materialized A2.1 data contains duplicate item ID: {value.item_id}"
+                )
+            materialized[value.item_id] = value
+        if set(materialized) != set(item_ids):
+            raise EmbeddingBenchmarkError("materialized A2.1 data does not cover the frozen items")
 
     selected: list[FrozenEvalCase] = []
     for record in records:
@@ -300,7 +409,7 @@ def load_frozen_eval_cases(
         item = record.item
         derived = materialized.get(item.item_id)
         relevant = (
-            frozenset(derived.relevant_chunk_ids)
+            _validate_materialized_item(item, derived, chunks)
             if derived is not None
             else _derive_relevant_chunks(item, chunks)
         )

@@ -114,6 +114,11 @@ class QdrantPointMetadata:
     document_id: UUID
     chunk_id: str
     knowledge_base_id: UUID | None
+    collection_schema_version: str | None = None
+    chunking_config_fingerprint: str | None = None
+    embedding_model: str | None = None
+    embedding_model_revision: str | None = None
+    embedding_config_fingerprint: str | None = None
 
 
 def point_id_for_chunk(chunk_id: str) -> UUID:
@@ -281,7 +286,16 @@ class QdrantVectorStore:
                     collection_name=self.collection_name,
                     limit=QDRANT_SCROLL_PAGE_SIZE,
                     offset=offset,
-                    with_payload=["document_id", "chunk_id", "knowledge_base_id"],
+                    with_payload=[
+                        "collection_schema_version",
+                        "chunking_config_fingerprint",
+                        "document_id",
+                        "chunk_id",
+                        "knowledge_base_id",
+                        "embedding_model",
+                        "embedding_model_revision",
+                        "embedding_config_fingerprint",
+                    ],
                     with_vectors=False,
                 )
                 for record in page:
@@ -315,6 +329,31 @@ class QdrantVectorStore:
                             document_id=document_id,
                             chunk_id=chunk_value,
                             knowledge_base_id=knowledge_base_id,
+                            collection_schema_version=(
+                                payload.get("collection_schema_version")
+                                if isinstance(payload.get("collection_schema_version"), str)
+                                else None
+                            ),
+                            chunking_config_fingerprint=(
+                                payload.get("chunking_config_fingerprint")
+                                if isinstance(payload.get("chunking_config_fingerprint"), str)
+                                else None
+                            ),
+                            embedding_model=(
+                                payload.get("embedding_model")
+                                if isinstance(payload.get("embedding_model"), str)
+                                else None
+                            ),
+                            embedding_model_revision=(
+                                payload.get("embedding_model_revision")
+                                if isinstance(payload.get("embedding_model_revision"), str)
+                                else None
+                            ),
+                            embedding_config_fingerprint=(
+                                payload.get("embedding_config_fingerprint")
+                                if isinstance(payload.get("embedding_config_fingerprint"), str)
+                                else None
+                            ),
                         )
                     )
                 if offset is None:
