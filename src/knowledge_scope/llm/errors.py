@@ -26,11 +26,13 @@ class LLMError(Exception):
         *,
         retryable: bool = False,
         status_code: int | None = None,
+        provider_attempts: int = 0,
     ) -> None:
         super().__init__(message)
         self.category = category
         self.retryable = retryable
         self.status_code = status_code
+        self.provider_attempts = max(0, provider_attempts)
 
 
 class LLMConfigurationError(LLMError):
@@ -50,8 +52,15 @@ class LLMProviderError(LLMError):
         *,
         retryable: bool = False,
         status_code: int | None = None,
+        provider_attempts: int = 1,
     ) -> None:
-        super().__init__(category, message, retryable=retryable, status_code=status_code)
+        super().__init__(
+            category,
+            message,
+            retryable=retryable,
+            status_code=status_code,
+            provider_attempts=provider_attempts,
+        )
 
 
 class LLMUsagePersistenceError(LLMError):

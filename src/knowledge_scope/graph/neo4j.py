@@ -261,6 +261,22 @@ RETURN properties(entity) AS entity,
        collect(CASE WHEN evidence IS NULL THEN null ELSE properties(evidence) END) AS provenance
 """.strip()
 
+_LIST_DOCUMENT_ENTITIES_QUERY = """
+MATCH (entity:KnowledgeEntity {
+    knowledge_base_id: $knowledge_base_id,
+    document_id: $document_id
+})
+MATCH (entity)-[:SUPPORTED_BY]->(
+    evidence:KnowledgeEvidence {
+        knowledge_base_id: $knowledge_base_id,
+        document_id: $document_id
+    }
+)
+RETURN properties(entity) AS entity,
+       collect(CASE WHEN evidence IS NULL THEN null ELSE properties(evidence) END) AS provenance
+ORDER BY entity.entity_id
+""".strip()
+
 _GET_RELATION_QUERY = """
 MATCH (relation:KnowledgeRelation {relation_id: $relation_id})
 OPTIONAL MATCH (relation)-[:SUPPORTED_BY]->(evidence:KnowledgeEvidence)
@@ -269,37 +285,89 @@ RETURN properties(relation) AS relation,
 """.strip()
 
 _COUNT_DOCUMENT_EVIDENCE_QUERY = """
-MATCH (evidence:KnowledgeEvidence {document_id: $document_id})
+MATCH (evidence:KnowledgeEvidence {
+    knowledge_base_id: $knowledge_base_id,
+    document_id: $document_id
+})
 RETURN count(evidence) AS count
 """.strip()
 
 _DELETE_DOCUMENT_EVIDENCE_QUERY = """
-MATCH (evidence:KnowledgeEvidence {document_id: $document_id})
+MATCH (evidence:KnowledgeEvidence {
+    knowledge_base_id: $knowledge_base_id,
+    document_id: $document_id
+})
 DETACH DELETE evidence
 """.strip()
 
 _COUNT_ORPHAN_RELATIONS_QUERY = """
-MATCH (relation:KnowledgeRelation)
+MATCH (relation:KnowledgeRelation {
+    knowledge_base_id: $knowledge_base_id,
+    document_id: $document_id
+})
 WHERE NOT (relation)-[:SUPPORTED_BY]->()
 RETURN count(relation) AS count
 """.strip()
 
 _DELETE_ORPHAN_RELATIONS_QUERY = """
-MATCH (relation:KnowledgeRelation)
+MATCH (relation:KnowledgeRelation {
+    knowledge_base_id: $knowledge_base_id,
+    document_id: $document_id
+})
 WHERE NOT (relation)-[:SUPPORTED_BY]->()
 DETACH DELETE relation
 """.strip()
 
 _COUNT_ORPHAN_ENTITIES_QUERY = """
-MATCH (entity:KnowledgeEntity)
+MATCH (entity:KnowledgeEntity {
+    knowledge_base_id: $knowledge_base_id,
+    document_id: $document_id
+})
 WHERE NOT (entity)-[:SUPPORTED_BY]->()
 RETURN count(entity) AS count
 """.strip()
 
 _DELETE_ORPHAN_ENTITIES_QUERY = """
-MATCH (entity:KnowledgeEntity)
+MATCH (entity:KnowledgeEntity {
+    knowledge_base_id: $knowledge_base_id,
+    document_id: $document_id
+})
 WHERE NOT (entity)-[:SUPPORTED_BY]->()
 DETACH DELETE entity
+""".strip()
+
+_DOCUMENT_KB_SCOPE_QUERY = """
+MATCH (node)
+WHERE (node:KnowledgeEntity
+    OR node:KnowledgeRelation
+    OR node:KnowledgeEvidence)
+  AND node.document_id = $document_id
+RETURN collect(DISTINCT node.knowledge_base_id) AS knowledge_base_ids,
+       sum(CASE WHEN node.knowledge_base_id IS NULL THEN 1 ELSE 0 END) AS unscoped_count,
+       count(node) AS node_count
+""".strip()
+
+_HAS_DOCUMENT_STATE_QUERY = """
+RETURN (
+    EXISTS {
+        MATCH (:KnowledgeEntity {
+            knowledge_base_id: $knowledge_base_id,
+            document_id: $document_id
+        })
+    }
+    OR EXISTS {
+        MATCH (:KnowledgeRelation {
+            knowledge_base_id: $knowledge_base_id,
+            document_id: $document_id
+        })
+    }
+    OR EXISTS {
+        MATCH (:KnowledgeEvidence {
+            knowledge_base_id: $knowledge_base_id,
+            document_id: $document_id
+        })
+    }
+) AS present
 """.strip()
 
 _UPSERT_CANONICAL_ENTITY_QUERY = """
@@ -551,15 +619,29 @@ _COUNT_DOCUMENT_CANONICAL_LINKS_QUERY = """
 MATCH (local:KnowledgeEntity {
     knowledge_base_id: $knowledge_base_id,
     document_id: $document_id
-})-[membership:CANONICAL_MEMBER_OF]->(:CanonicalEntity)
+})-[membership:CANONICAL_MEMBER_OF]->(
+    :CanonicalEntity {knowledge_base_id: $knowledge_base_id}
+)
 RETURN count(membership) AS count
+""".strip()
+
+_LIST_DOCUMENT_CANONICAL_IDS_QUERY = """
+MATCH (local:KnowledgeEntity {
+    knowledge_base_id: $knowledge_base_id,
+    document_id: $document_id
+})-[:CANONICAL_MEMBER_OF]->(
+    canonical:CanonicalEntity {knowledge_base_id: $knowledge_base_id}
+)
+RETURN collect(DISTINCT canonical.canonical_entity_id) AS canonical_entity_ids
 """.strip()
 
 _DELETE_DOCUMENT_CANONICAL_LINKS_QUERY = """
 MATCH (local:KnowledgeEntity {
     knowledge_base_id: $knowledge_base_id,
     document_id: $document_id
-})-[membership:CANONICAL_MEMBER_OF]->(:CanonicalEntity)
+})-[membership:CANONICAL_MEMBER_OF]->(
+    canonical:CanonicalEntity {knowledge_base_id: $knowledge_base_id}
+)
 DELETE membership
 """.strip()
 
@@ -567,40 +649,44 @@ _DELETE_DOCUMENT_LINK_DECISIONS_QUERY = """
 MATCH (decision:KnowledgeLinkDecision {knowledge_base_id: $knowledge_base_id})
 WHERE decision.local_entity_a_id IN $entity_ids
    OR decision.local_entity_b_id IN $entity_ids
+WITH collect(DISTINCT decision) AS decisions, count(DISTINCT decision) AS decision_count
+WITH decisions, decision_count, [value IN decisions | value.link_decision_id] AS deleted_ids
+UNWIND decisions AS decision
 OPTIONAL MATCH (pair:KnowledgeLinkPair {
     link_pair_id: decision.link_pair_id,
     knowledge_base_id: $knowledge_base_id
 })-[current:CURRENT_DECISION]->(decision)
 DELETE current
-WITH collect(DISTINCT decision) AS decisions
-UNWIND decisions AS decision
-OPTIONAL MATCH ()-[membership:CANONICAL_MEMBER_OF]->()
-WHERE decision.link_decision_id IN coalesce(
-    membership.decision_ids,
-    CASE WHEN membership.decision_id IS NULL THEN [] ELSE [membership.decision_id] END
+WITH DISTINCT decisions, decision_count, deleted_ids
+OPTIONAL MATCH ()-[membership:CANONICAL_MEMBER_OF]->(
+    :CanonicalEntity {knowledge_base_id: $knowledge_base_id}
 )
-WITH decision, collect(DISTINCT membership) AS memberships
-FOREACH (membership IN memberships |
-    SET membership.decision_ids = [
-        decision_id IN coalesce(
-            membership.decision_ids,
-            CASE WHEN membership.decision_id IS NULL THEN [] ELSE [membership.decision_id] END
-        )
-        WHERE decision_id <> decision.link_decision_id
-    ]
+WHERE membership IS NULL OR any(
+    decision_id IN coalesce(
+        membership.decision_ids,
+        CASE WHEN membership.decision_id IS NULL THEN [] ELSE [membership.decision_id] END
+    )
+    WHERE decision_id IN deleted_ids
 )
-WITH decision, memberships
-FOREACH (membership IN memberships |
-    FOREACH (_ IN CASE
-        WHEN size(coalesce(
-            membership.decision_ids,
-            CASE WHEN membership.decision_id IS NULL THEN [] ELSE [membership.decision_id] END
-        )) = 0 THEN [1]
-        ELSE []
-    END | DELETE membership)
+WITH decisions, decision_count, deleted_ids, membership,
+     CASE WHEN membership IS NULL THEN [] ELSE [
+         decision_id IN coalesce(
+             membership.decision_ids,
+             CASE WHEN membership.decision_id IS NULL THEN [] ELSE [membership.decision_id] END
+         )
+         WHERE NOT decision_id IN deleted_ids
+     ] END AS remaining_ids
+FOREACH (_ IN CASE WHEN membership IS NULL THEN [] ELSE [1] END |
+    SET membership.decision_ids = remaining_ids
 )
-DETACH DELETE decision
-RETURN count(decision) AS count
+WITH DISTINCT decisions, decision_count, membership, remaining_ids
+FOREACH (_ IN CASE
+    WHEN membership IS NOT NULL AND size(remaining_ids) = 0 THEN [1]
+    ELSE []
+END | DELETE membership)
+WITH DISTINCT decisions, decision_count
+FOREACH (decision IN decisions | DETACH DELETE decision)
+RETURN decision_count AS count
 """.strip()
 
 _DELETE_DOCUMENT_LINK_PAIRS_QUERY = """
@@ -613,13 +699,15 @@ RETURN count(pair) AS count
 
 _COUNT_ORPHAN_CANONICAL_ENTITIES_QUERY = """
 MATCH (canonical:CanonicalEntity {knowledge_base_id: $knowledge_base_id})
-WHERE NOT (canonical)<-[:CANONICAL_MEMBER_OF]-()
+WHERE canonical.canonical_entity_id IN $canonical_entity_ids
+  AND NOT (canonical)<-[:CANONICAL_MEMBER_OF]-()
 RETURN count(canonical) AS count
 """.strip()
 
 _DELETE_ORPHAN_CANONICAL_ENTITIES_QUERY = """
 MATCH (canonical:CanonicalEntity {knowledge_base_id: $knowledge_base_id})
-WHERE NOT (canonical)<-[:CANONICAL_MEMBER_OF]-()
+WHERE canonical.canonical_entity_id IN $canonical_entity_ids
+  AND NOT (canonical)<-[:CANONICAL_MEMBER_OF]-()
 DETACH DELETE canonical
 """.strip()
 
@@ -1558,6 +1646,9 @@ class Neo4jGraphStore:
                 tx.run(
                     _DELETE_ORPHAN_CANONICAL_ENTITIES_QUERY,
                     knowledge_base_id=knowledge_base_value,
+                    canonical_entity_ids=[
+                        value.canonical_entity_id for value in validated_canonical
+                    ],
                 ).consume()
             return GraphLinkUpsertResult(
                 canonical_entity_count=len(canonical_params),
@@ -1573,6 +1664,25 @@ class Neo4jGraphStore:
         def read(session: Any) -> GraphEntity | None:
             record = _single_or_none(session.run(_GET_ENTITY_QUERY, entity_id=entity_id))
             return _entity_from_record(record) if record is not None else None
+
+        return self._read(read)
+
+    def list_entities_for_document(
+        self,
+        knowledge_base_id: UUID,
+        document_id: UUID,
+    ) -> tuple[GraphEntity, ...]:
+        """Return current evidence-backed local entities for one document."""
+
+        def read(session: Any) -> tuple[GraphEntity, ...]:
+            return tuple(
+                _entity_from_record(record)
+                for record in session.run(
+                    _LIST_DOCUMENT_ENTITIES_QUERY,
+                    knowledge_base_id=str(knowledge_base_id),
+                    document_id=str(document_id),
+                )
+            )
 
         return self._read(read)
 
@@ -1669,6 +1779,20 @@ class Neo4jGraphStore:
 
         return self._read(read)
 
+    def has_document_state(self, knowledge_base_id: UUID, document_id: UUID) -> bool:
+        """Return whether this KB currently has graph state for a document."""
+
+        params = {
+            "knowledge_base_id": str(knowledge_base_id),
+            "document_id": str(document_id),
+        }
+
+        def read(session: Any) -> bool:
+            record = _single_or_none(session.run(_HAS_DOCUMENT_STATE_QUERY, **params))
+            return bool(_record_value(record, "present")) if record is not None else False
+
+        return self._read(read)
+
     def delete_document_links(
         self,
         knowledge_base_id: UUID,
@@ -1688,10 +1812,12 @@ class Neo4jGraphStore:
 
         def write(tx: Any) -> GraphLinkDeleteResult:
             entity_ids = self._document_local_entity_ids(tx, params)
+            canonical_entity_ids = self._document_canonical_entity_ids(tx, params)
             mapping_count, decision_count, canonical_count = self._delete_document_linking_state(
                 tx,
                 params,
                 entity_ids,
+                canonical_entity_ids,
             )
             return GraphLinkDeleteResult(
                 knowledge_base_id=knowledge_base_id,
@@ -1703,6 +1829,48 @@ class Neo4jGraphStore:
 
         return self._write(write)
 
+    def delete_documents_links(
+        self,
+        knowledge_base_id: UUID,
+        document_ids: Sequence[UUID],
+    ) -> tuple[GraphLinkDeleteResult, ...]:
+        """Remove linking state for several documents in one Neo4j transaction."""
+
+        unique_document_ids = tuple(sorted(set(document_ids), key=str))
+        if not unique_document_ids:
+            return ()
+        knowledge_base_value = str(knowledge_base_id)
+
+        def write(tx: Any) -> tuple[GraphLinkDeleteResult, ...]:
+            results: list[GraphLinkDeleteResult] = []
+            for document_id in unique_document_ids:
+                params = {
+                    "knowledge_base_id": knowledge_base_value,
+                    "document_id": str(document_id),
+                }
+                entity_ids = self._document_local_entity_ids(tx, params)
+                canonical_entity_ids = self._document_canonical_entity_ids(tx, params)
+                mapping_count, decision_count, canonical_count = (
+                    self._delete_document_linking_state(
+                        tx,
+                        params,
+                        entity_ids,
+                        canonical_entity_ids,
+                    )
+                )
+                results.append(
+                    GraphLinkDeleteResult(
+                        knowledge_base_id=knowledge_base_id,
+                        document_id=document_id,
+                        decision_count=decision_count,
+                        mapping_count=mapping_count,
+                        canonical_entity_count=canonical_count,
+                    )
+                )
+            return tuple(results)
+
+        return self._write(write)
+
     @staticmethod
     def _document_local_entity_ids(tx: Any, params: dict[str, Any]) -> list[str]:
         entity_record = _single_or_none(tx.run(_LIST_DOCUMENT_LOCAL_ENTITY_IDS_QUERY, **params))
@@ -1710,10 +1878,17 @@ class Neo4jGraphStore:
         return [str(value) for value in raw_ids] if isinstance(raw_ids, list) else []
 
     @staticmethod
+    def _document_canonical_entity_ids(tx: Any, params: dict[str, Any]) -> list[str]:
+        record = _single_or_none(tx.run(_LIST_DOCUMENT_CANONICAL_IDS_QUERY, **params))
+        raw_ids = _record_value(record, "canonical_entity_ids") if record else []
+        return [str(value) for value in raw_ids] if isinstance(raw_ids, list) else []
+
+    @staticmethod
     def _delete_document_linking_state(
         tx: Any,
         params: dict[str, Any],
         entity_ids: Sequence[str],
+        canonical_entity_ids: Sequence[str],
     ) -> tuple[int, int, int]:
         """Remove current linking state while preserving independently supported data."""
 
@@ -1734,14 +1909,34 @@ class Neo4jGraphStore:
             tx.run(
                 _COUNT_ORPHAN_CANONICAL_ENTITIES_QUERY,
                 knowledge_base_id=params["knowledge_base_id"],
+                canonical_entity_ids=list(canonical_entity_ids),
             )
         )
         canonical_count = int(_record_value(orphan_record, "count") or 0)
         tx.run(
             _DELETE_ORPHAN_CANONICAL_ENTITIES_QUERY,
             knowledge_base_id=params["knowledge_base_id"],
+            canonical_entity_ids=list(canonical_entity_ids),
         ).consume()
         return mapping_count, decision_count, canonical_count
+
+    @staticmethod
+    def _infer_document_knowledge_base(tx: Any, document_id: str) -> str | None:
+        record = _single_or_none(tx.run(_DOCUMENT_KB_SCOPE_QUERY, document_id=document_id))
+        if record is None:
+            return None
+        node_count = int(_record_value(record, "node_count") or 0)
+        if node_count == 0:
+            return None
+        raw_ids = _record_value(record, "knowledge_base_ids") or []
+        knowledge_base_ids = {str(value) for value in raw_ids if value is not None}
+        unscoped_count = int(_record_value(record, "unscoped_count") or 0)
+        if unscoped_count or len(knowledge_base_ids) != 1:
+            raise GraphStoreError(
+                "document deletion requires an explicit knowledge_base_id when "
+                "graph state is ambiguous"
+            )
+        return next(iter(knowledge_base_ids))
 
     def delete_document(
         self,
@@ -1759,27 +1954,42 @@ class Neo4jGraphStore:
         document_value = str(document_id)
 
         def write(tx: Any) -> GraphDeleteResult:
-            if knowledge_base_id is not None:
-                params = {
-                    "knowledge_base_id": str(knowledge_base_id),
-                    "document_id": document_value,
-                }
-                entity_ids = self._document_local_entity_ids(tx, params)
-                self._delete_document_linking_state(tx, params, entity_ids)
-
-            evidence_record = _single_or_none(
-                tx.run(_COUNT_DOCUMENT_EVIDENCE_QUERY, document_id=document_value)
+            knowledge_base_value = (
+                str(knowledge_base_id)
+                if knowledge_base_id is not None
+                else self._infer_document_knowledge_base(tx, document_value)
             )
+            if knowledge_base_value is None:
+                return GraphDeleteResult(
+                    document_id=document_id,
+                    evidence_count=0,
+                    relation_count=0,
+                    entity_count=0,
+                )
+            params = {
+                "knowledge_base_id": knowledge_base_value,
+                "document_id": document_value,
+            }
+            entity_ids = self._document_local_entity_ids(tx, params)
+            canonical_entity_ids = self._document_canonical_entity_ids(tx, params)
+            self._delete_document_linking_state(
+                tx,
+                params,
+                entity_ids,
+                canonical_entity_ids,
+            )
+
+            evidence_record = _single_or_none(tx.run(_COUNT_DOCUMENT_EVIDENCE_QUERY, **params))
             evidence_count = int(_record_value(evidence_record, "count") or 0)
-            tx.run(_DELETE_DOCUMENT_EVIDENCE_QUERY, document_id=document_value).consume()
+            tx.run(_DELETE_DOCUMENT_EVIDENCE_QUERY, **params).consume()
 
-            relation_record = _single_or_none(tx.run(_COUNT_ORPHAN_RELATIONS_QUERY))
+            relation_record = _single_or_none(tx.run(_COUNT_ORPHAN_RELATIONS_QUERY, **params))
             relation_count = int(_record_value(relation_record, "count") or 0)
-            tx.run(_DELETE_ORPHAN_RELATIONS_QUERY).consume()
+            tx.run(_DELETE_ORPHAN_RELATIONS_QUERY, **params).consume()
 
-            entity_record = _single_or_none(tx.run(_COUNT_ORPHAN_ENTITIES_QUERY))
+            entity_record = _single_or_none(tx.run(_COUNT_ORPHAN_ENTITIES_QUERY, **params))
             entity_count = int(_record_value(entity_record, "count") or 0)
-            tx.run(_DELETE_ORPHAN_ENTITIES_QUERY).consume()
+            tx.run(_DELETE_ORPHAN_ENTITIES_QUERY, **params).consume()
             return GraphDeleteResult(
                 document_id=document_id,
                 evidence_count=evidence_count,

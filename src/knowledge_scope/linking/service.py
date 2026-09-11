@@ -85,6 +85,8 @@ class LinkingStats:
     output_tokens: int | None
     latency_ms: float
     estimated_cost: Decimal | None
+    provider_attempts: int = 0
+    provider_retry_calls: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,7 +387,7 @@ async def _adjudicate_candidate(
     context_by_id: dict[str, LocalEntityContext],
     gateway: LinkingGateway,
     settings: Settings,
-) -> tuple[EntityLinkDecision, LLMResult | None, bool, bool]:
+) -> tuple[EntityLinkDecision, LLMResult | None, bool, bool, int]:
     messages = build_link_adjudication_messages(
         candidate,
         context_by_id[candidate.local_entity_a_id],
@@ -419,6 +421,7 @@ async def _adjudicate_candidate(
             None,
             True,
             True,
+            max(0, error.provider_attempts),
         )
     try:
         output = parse_link_adjudication_output(result.text)
@@ -435,6 +438,7 @@ async def _adjudicate_candidate(
             result,
             True,
             False,
+            result.provider_attempts,
         )
 
     decision: LinkDecision = output.decision
@@ -459,6 +463,7 @@ async def _adjudicate_candidate(
         result,
         False,
         False,
+        result.provider_attempts,
     )
 
 
@@ -657,6 +662,7 @@ async def link_entities(
     provider_failure_fallbacks = 0
     llm_calls = 0
     llm_failures = 0
+    provider_attempts = 0
     for candidate in candidates:
         initial = deterministic_decision(candidate, run_id=effective_run_id)
         if initial.decision != "UNCERTAIN":
@@ -677,7 +683,7 @@ async def link_entities(
         if settings is None:
             raise LinkingValidationError("settings are required when LLM adjudication is enabled")
         llm_calls += 1
-        decision, result, failed, provider_failed = await _adjudicate_candidate(
+        decision, result, failed, provider_failed, attempts = await _adjudicate_candidate(
             candidate,
             run_id=effective_run_id,
             context_by_id=context_by_id,
@@ -687,6 +693,7 @@ async def link_entities(
         decisions.append(decision)
         if result is not None:
             llm_results.append(result)
+        provider_attempts += attempts
         if failed:
             llm_failures += 1
         if provider_failed:
@@ -728,6 +735,8 @@ async def link_entities(
             output_tokens=output_tokens,
             latency_ms=latency_ms,
             estimated_cost=estimated,
+            provider_attempts=provider_attempts,
+            provider_retry_calls=max(0, provider_attempts - llm_calls),
         ),
     )
 

@@ -48,7 +48,11 @@ chunk 中可逐字定位的短、连续 `evidence` 原文片段；证据不足�
 抽取层最多进行一次 corrective retry。重试会把安全的失败类别、字段路径和 Pydantic
 错误类型（不包含原始模型输出值）放入新的 prompt，并再次生成完整 payload；未知 taxonomy
 时还会重新列出允许值。不会盲目重复完全相同的请求。timeout、provider/API、网络错误和
-取消由 A2.6 gateway 处理，抽取层不重试它们。每次实际 provider 调用仍可能重复 provider
+取消由 A2.6 gateway 处理，抽取层不重试它们。`finish_reason=length` 属于独立的截断重试：
+初始 `KNOWLEDGE_SCOPE_GRAPH_EXTRACTION_MAX_TOKENS=1024` 后，默认按
+`KNOWLEDGE_SCOPE_GRAPH_EXTRACTION_TRUNCATION_BUDGETS=[1024,2048,4096]` 逐级增加输出预算，
+不会因此消耗 corrective retry；到最后预算仍被截断时，终态安全错误类别为
+`truncated_response`，不会解析不完整 JSON。每次实际 provider 调用仍可能重复 provider
 侧工作和费用，不承诺 exactly-once。
 
 ## Grounding 与诊断
@@ -73,8 +77,8 @@ taxonomy/schema 层以 `unknown_relation_type` 拒绝，不再伪装成文本 gr
 每个 runtime `sample.jsonl` 记录每一个 provider attempt 的安全类别、`finish_reason`、
 token、延迟和有限的 transport format，不记录模型原文。类别包括 valid/empty、非法
 JSON、code fence、extra prose、schema/未知 taxonomy、unknown relation entity、
-grounding rejection、truncated response 和 provider/API failure。首次尝试与 corrective
-retry 分开汇总。
+grounding rejection、truncated response 和 provider/API failure。首次尝试、截断预算
+retry 与 corrective retry 分开汇总。
 
 ## 来源与写入边界
 

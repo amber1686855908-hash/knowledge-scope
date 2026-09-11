@@ -4,7 +4,7 @@ KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，当前提供�
 
 ## 当前状态
 
-当前已完成 A3.4，A3.5 hybrid retrieval 基础已加入开发分支，目前提供：
+当前已完成 A3.5，Phase A3.6 提供全量图语料构建与覆盖审计基础，目前提供：
 
 - 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health、parse-document 和 chunk-document CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
@@ -51,6 +51,10 @@ Phase A3.3 当前提供显式的 local entity linking 基础：`knowledge_scope.
 Phase A3.4 已加入独立的 bounded Graph Retriever：`knowledge_scope.graph.retrieval_service` 在指定 `knowledge_base_id` 内，使用 A3.3 当前 canonical membership 做保守的 local entity、alias 和规范化 lexical seed resolution，再通过 Neo4j 的有方向 local relation 和显式 canonical bridge 做最多两跳遍历。结果只返回有 `KnowledgeEvidence` 支撑的 `document_id`、页码、`chunk_id`、`source_block_ids` 和 `section_path` lineage，并按可解释的确定性信号排序；没有可靠 seed 时返回空结果。`uv run knowledgescope graph-search` 可执行单次开发者查询，`uv run knowledgescope graph-retrieval-sample` 可对已有本地 A3.2/A3.3 sample graph 生成被忽略的 review pack。A3.4 不接入 Qdrant、RAG 或前端，不调用 LLM 做查询解析，也不执行全语料图检索；边界和小样本口径见 [A3.4 图检索说明](docs/architecture/graph-retrieval.md) 和 [A3.4 小样本记录](docs/benchmarks/a3-4-graph-retrieval.md)。
 
 Phase A3.5 已加入独立的 vector + graph hybrid retrieval：向量分支复用 `Qwen/Qwen3-Embedding-0.6B`、Qdrant dense candidates 和 `BAAI/bge-reranker-v2-m3`，图分支复用 A3.4 bounded graph retrieval；两条分支并发执行后，以 `(knowledge_base_id, document_id, chunk_id)` 去重并使用可配置的 RRF 融合。结果保留 vector/graph/both 来源、分支排名、图 seed/path、evidence IDs 和完整 chunk lineage；分支状态明确区分成功、空结果、失败和超时，支持 `degraded` 与 `strict` 模式。`uv run knowledgescope hybrid-search` 可执行单次开发者查询；当前不修改 RAG answer generation，不增加 sparse/hybrid score calibration、学习式融合或前端检索 UI。详见 [A3.5 hybrid retrieval 说明](docs/architecture/hybrid-retrieval.md)。
+
+Phase A3.6 当前提供面向已登记 255 个 benchmark 文档和 7,524 个 A1.6 chunk 的可恢复图语料构建 runner，以及只读 corpus/graph/A2.1 覆盖审计。runner 复用 A3.2 的单 chunk grounded extraction 和 A3.3 的 bounded linking，不重新运行 MinerU，不改变 A1/A2 标注或 chunking；输入按文档流式读取，使用输入/config/pipeline fingerprint、追加式 fsynced checkpoint 和显式批次边界支持恢复、失败重试与文档重处理。只有 `accepted`、空抽取和 grounding rejection 才是成功终态，schema rejection 或其他未解决失败会阻断该文档的 linking。`graph-corpus-build` 需要显式 `--persist` 和已配置的 LLM key，默认只选每个学科一个文档；全量运行前可用 `graph-corpus-estimate` 查看基于已有样本的成本/耗时外推，`graph-corpus-audit` 用于核对登记、chunk、A2.1 和当前 Neo4j 覆盖。
+
+最终审计的运行状态为 `partial_failure`：`run_id=e926e1d3-9050-4911-89ef-1632ed0894c2`，7,513/7,524 个 chunk 达到成功终态，11 个 chunk 终态失败；246 个文档为 link-complete/graph-eligible，9 个文档被排除并保持 linking-blocked，排除文档没有 retrieval-visible partial graph state。合格图谱包含 55,098 个 local entities、27,268 个 relations、6,087 个 `KnowledgeEvidence` records/supported chunks、1,241 个 canonical entities 和 2,609 个 canonical memberships。A2.1 的冻结 108 条评测映射中，105 条为 complete graph coverage、0 条 partial、3 条 no graph coverage。这里明确区分 extraction success（7,513/7,524）、graph evidence coverage（6,087 chunks）和 graph-eligible documents（246/255）；这些运行计数不代表抽取准确率或检索效果，也不表示 100% 成功。该运行使用 `legacy-v1` prompt contract 和 `1024 → 2048 → 4096` truncation policy，运行时 checkpoint、manifest 和审计文件均位于被忽略的 `data/evaluation/a3-6/`；cache-v2 只作为未来优化，不属于本次运行。设计说明见 [A3.6 图语料构建](docs/architecture/graph-corpus-build.md)，审计口径见 [A3.6 覆盖审计报告](docs/benchmarks/a3-6-graph-corpus-build.md)。
 
 当前 A1.5/A1.6 的 255 个 benchmark 文档可以通过显式的 corpus registration workflow 登记为一个指定 KnowledgeBase。该流程不从文件名、路径、学科或正文推断归属，不重新运行 MinerU、分块或 embedding，也不复制/移动源语料；登记后的 `Document` 使用 `status=registered` 和 `storage_kind=external_reference`，`storage_key` 保持为空，原有普通上传文档的本地托管语义不变。登记前会校验 255 个唯一文档、canonical artifact、7,524 个 chunk lineage、目标 KB 和所有权冲突，并在一个 PostgreSQL 事务中完成；重复执行是幂等的，冲突会整体拒绝。登记还会生成被忽略的 `data/evaluation/a3-5/a2-1-kb-mapping.jsonl`，将冻结 A2.1 的 108 个 item 映射到同一显式 KB，但不会修改冻结标注；完整的存储与升级说明见 [benchmark corpus registration](docs/architecture/benchmark-corpus-registration.md)。
 
@@ -242,6 +246,30 @@ uv run knowledgescope hybrid-search "说明事理时应重点说明哪些内容?
 `strict`。相关 candidate、rerank、graph 和最终结果上限以及
 `KNOWLEDGE_SCOPE_HYBRID_RRF_K` 均可通过 `.env` 配置。该命令不接入
 `/api/v1/rag/query`，也不执行全语料图抽取。
+
+审计已登记语料和当前图覆盖：
+
+```bash
+uv run knowledgescope graph-corpus-audit \
+  --knowledge-base-id <knowledge-base-uuid>
+```
+
+根据已有 A3.2 样本估算全量运行的 token、成本和耗时（未配置价格时成本为 `null`）：
+
+```bash
+uv run knowledgescope graph-corpus-estimate
+```
+
+先完成估算并确认 LLM key 后，再显式执行一个小的分主题批次；`--persist` 才会写入 Neo4j：
+
+```bash
+uv run knowledgescope graph-corpus-build \
+  --knowledge-base-id <knowledge-base-uuid> \
+  --sample-per-subject 1 \
+  --persist
+```
+
+该 runner 以 `docs/benchmarks/a3-6-corpus-input-snapshot.json` 作为当前 corpus/chunk universe 的权威快照；它会校验 manifest、chunk index 的 hash、文档/chunk 身份和完整性，不把 255/7,524 当作通用代码常量。同一 checkpoint 目录由本地 file lock 独占；发现新目录已有目标 KB/document 图状态时，必须显式使用 `--reprocess`，不会自动删除。checkpoint 只记录标识、fingerprint、状态、token、延迟和错误类别，不保存原始 chunk、PDF 或 provider response。Neo4j 单库事务与 PostgreSQL、文件系统、Qdrant 之间不是分布式原子事务；恢复是 at-least-once、幂等/补偿式流程，不宣称 exactly-once。
 
 修复已有 Qdrant points 的知识库归属前，先执行只读审计：
 

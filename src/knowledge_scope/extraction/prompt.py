@@ -17,6 +17,10 @@ from .models import (
 )
 
 EXTRACTION_PROMPT_VERSION: Final = "graph-extraction-v1.3"
+# Keep the layout identifier separate from the semantic prompt version.  The
+# current full run was created before the cache-layout experiment and uses this
+# legacy ordering.
+EXTRACTION_PROMPT_LAYOUT_VERSION: Final = "legacy-v1"
 
 _SYSTEM_PROMPT = (
     "你是 KnowledgeScope 的教材知识图谱抽取器。\n"
@@ -84,4 +88,8 @@ def build_extraction_messages(
     ]
 
 
-__all__ = ["EXTRACTION_PROMPT_VERSION", "build_extraction_messages"]
+__all__ = [
+    "EXTRACTION_PROMPT_LAYOUT_VERSION",
+    "EXTRACTION_PROMPT_VERSION",
+    "build_extraction_messages",
+]

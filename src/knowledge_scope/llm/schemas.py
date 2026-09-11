@@ -85,6 +85,7 @@ class LLMResult(_StrictModel):
     output_tokens: int | None = Field(default=None, ge=0)
     latency_ms: float = Field(ge=0)
     finish_reason: str | None = None
+    provider_attempts: int = Field(default=1, ge=1)
 
 
 class LLMStreamEvent(_StrictModel):

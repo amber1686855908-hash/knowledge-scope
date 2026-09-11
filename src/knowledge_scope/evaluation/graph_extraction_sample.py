@@ -413,6 +413,16 @@ async def run_sample_evaluation(
             _structured_attempt(value.get("category")) for value in first_attempts
         ),
         "retry_recovered_chunks": retry_recovered,
+        "truncation_retry_count": sum(int(value.get("truncation_retries", 0)) for value in stats),
+        "corrective_retry_count": sum(
+            max(
+                0,
+                len(_attempts_from_record(record))
+                - 1
+                - int((record.get("stats") or {}).get("truncation_retries", 0)),
+            )
+            for record in records
+        ),
         "finish_reasons": dict(
             sorted(
                 Counter(

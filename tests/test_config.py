@@ -43,6 +43,9 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.llm_output_cost_per_1k_tokens is None
     assert settings.graph_extraction_max_tokens == 1024
     assert settings.graph_extraction_max_parse_retries == 1
+    assert settings.graph_extraction_truncation_budgets == (1024, 2048, 4096)
+    assert settings.graph_extraction_max_truncation_retries == 2
+    assert settings.graph_extraction_truncation_ceiling == 4096
     assert settings.rag_candidate_limit == 10
     assert settings.rag_rerank_limit == 5
     assert settings.rag_context_budget_chars == 6_000
@@ -78,6 +81,10 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_LLM_OUTPUT_COST_PER_1K_TOKENS", "0.34")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_GRAPH_EXTRACTION_MAX_TOKENS", "768")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_GRAPH_EXTRACTION_MAX_PARSE_RETRIES", "1")
+    monkeypatch.setenv(
+        "KNOWLEDGE_SCOPE_GRAPH_EXTRACTION_TRUNCATION_BUDGETS",
+        "[768,1536,3072]",
+    )
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_CANDIDATE_LIMIT", "8")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_RERANK_LIMIT", "4")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS", "4000")
@@ -114,6 +121,9 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.llm_output_cost_per_1k_tokens == Decimal("0.34")
     assert settings.graph_extraction_max_tokens == 768
     assert settings.graph_extraction_max_parse_retries == 1
+    assert settings.graph_extraction_truncation_budgets == (768, 1536, 3072)
+    assert settings.graph_extraction_max_truncation_retries == 2
+    assert settings.graph_extraction_truncation_ceiling == 3072
     assert settings.rag_candidate_limit == 8
     assert settings.rag_rerank_limit == 4
     assert settings.rag_context_budget_chars == 4000
@@ -123,6 +133,18 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
 def test_extraction_retry_setting_allows_at_most_one_corrective_retry() -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, graph_extraction_max_parse_retries=2)
+
+
+def test_truncation_budget_policy_is_bounded_and_ordered() -> None:
+    with pytest.raises(ValidationError, match="first graph extraction truncation budget"):
+        Settings(_env_file=None, graph_extraction_truncation_budgets=(2048, 4096))
+    with pytest.raises(ValidationError, match="strictly increasing"):
+        Settings(_env_file=None, graph_extraction_truncation_budgets=(1024, 1024))
+    with pytest.raises(ValidationError, match="at most four"):
+        Settings(
+            _env_file=None,
+            graph_extraction_truncation_budgets=(1024, 2048, 4096, 8192, 16384),
+        )
 
 
 def test_settings_load_dotenv_file(tmp_path: Path) -> None:

@@ -49,6 +49,10 @@ data/benchmarks/a3-4/
 data/evaluation/a3-5/
 data/benchmarks/a3-5/
 
+# Local A3.6 graph-corpus checkpoints, estimates, and coverage reports
+data/evaluation/a3-6/
+data/benchmarks/a3-6/
+
 # IDE settings
 .idea/
 .vscode/

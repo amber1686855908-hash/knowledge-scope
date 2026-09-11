@@ -33,8 +33,10 @@ class LLMGateway:
     ) -> LLMResult:
         for attempt in range(self._settings.llm_max_retries + 1):
             try:
-                return await operation()
+                result = await operation()
+                return result.model_copy(update={"provider_attempts": attempt + 1})
             except LLMProviderError as error:
+                error.provider_attempts = attempt + 1
                 if not error.retryable or attempt >= self._settings.llm_max_retries:
                     raise
                 await asyncio.sleep(0.25 * (2**attempt))

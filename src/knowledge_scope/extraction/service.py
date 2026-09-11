@@ -128,11 +128,13 @@ class ExtractionAttempt:
 
     number: int
     category: ExtractionAttemptCategory
+    max_tokens: int | None = None
     transport_format: ExtractionTransportFormat | None = None
     finish_reason: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     latency_ms: float | None = None
+    provider_attempts: int = 0
     details: tuple[str, ...] = ()
 
 
@@ -164,6 +166,7 @@ class ExtractionStats:
     grounding_rejections: int
     duplicate_entities: int
     duplicate_relations: int
+    truncation_retries: int = 0
     skipped_no_text: bool = False
     grounding_rejection_reasons: tuple[GroundingRejectionReason, ...] = ()
 
@@ -654,7 +657,7 @@ class ExtractionService:
             messages=build_extraction_messages(chunk),
             task_type="graph_extraction",
             temperature=0.0,
-            max_tokens=self._settings.graph_extraction_max_tokens,
+            max_tokens=self._settings.graph_extraction_truncation_budgets[0],
             model=self._settings.llm_model,
             response_format=LLMResponseFormat(type="json_object"),
             reasoning="disabled",
@@ -663,7 +666,10 @@ class ExtractionService:
         attempts: list[ExtractionAttempt] = []
         parse_failures = 0
         schema_failures = 0
-        for attempt in range(self._max_parse_retries + 1):
+        truncation_retries = 0
+        corrective_retries = 0
+        truncation_budget_index = 0
+        while True:
             try:
                 result = await self._gateway.complete(request)
             except asyncio.CancelledError:
@@ -671,6 +677,8 @@ class ExtractionService:
                     ExtractionAttempt(
                         number=len(attempts) + 1,
                         category="cancelled",
+                        max_tokens=request.max_tokens,
+                        provider_attempts=1,
                     )
                 )
                 raise
@@ -684,6 +692,8 @@ class ExtractionService:
                     ExtractionAttempt(
                         number=len(attempts) + 1,
                         category=category,
+                        max_tokens=request.max_tokens,
+                        provider_attempts=max(0, error.provider_attempts),
                         details=(error.category,),
                     )
                 )
@@ -697,26 +707,29 @@ class ExtractionService:
             if result.finish_reason == "length":
                 category = "truncated_response"
                 details = ("finish_reason=length",)
-                parse_failures += 1
                 attempts.append(
                     ExtractionAttempt(
                         number=len(attempts) + 1,
                         category=category,
+                        max_tokens=request.max_tokens,
                         transport_format=transport_format,
                         finish_reason=result.finish_reason,
                         input_tokens=result.input_tokens,
                         output_tokens=result.output_tokens,
                         latency_ms=result.latency_ms,
+                        provider_attempts=result.provider_attempts,
                         details=details,
                     )
                 )
-                if attempt < self._max_parse_retries:
+                next_budget_index = truncation_budget_index + 1
+                if next_budget_index < len(self._settings.graph_extraction_truncation_budgets):
+                    truncation_budget_index = next_budget_index
+                    truncation_retries += 1
                     request = request.model_copy(
                         update={
-                            "messages": build_extraction_messages(
-                                chunk,
-                                correction=_corrective_instruction(category, details),
-                            )
+                            "max_tokens": self._settings.graph_extraction_truncation_budgets[
+                                truncation_budget_index
+                            ]
                         }
                     )
                     continue
@@ -733,6 +746,7 @@ class ExtractionService:
                         grounding_rejections=0,
                         duplicate_entities=0,
                         duplicate_relations=0,
+                        truncation_retries=truncation_retries,
                     ),
                     llm_results=tuple(llm_results),
                     attempts=tuple(attempts),
@@ -756,15 +770,18 @@ class ExtractionService:
                     ExtractionAttempt(
                         number=len(attempts) + 1,
                         category=category,
+                        max_tokens=request.max_tokens,
                         transport_format=transport_format,
                         finish_reason=result.finish_reason,
                         input_tokens=result.input_tokens,
                         output_tokens=result.output_tokens,
                         latency_ms=result.latency_ms,
+                        provider_attempts=result.provider_attempts,
                         details=details,
                     )
                 )
-                if attempt < self._max_parse_retries:
+                if corrective_retries < self._max_parse_retries:
+                    corrective_retries += 1
                     request = request.model_copy(
                         update={
                             "messages": build_extraction_messages(
@@ -787,6 +804,7 @@ class ExtractionService:
                         grounding_rejections=0,
                         duplicate_entities=0,
                         duplicate_relations=0,
+                        truncation_retries=truncation_retries,
                     ),
                     llm_results=tuple(llm_results),
                     attempts=tuple(attempts),
@@ -804,15 +822,18 @@ class ExtractionService:
                     ExtractionAttempt(
                         number=len(attempts) + 1,
                         category=category,
+                        max_tokens=request.max_tokens,
                         transport_format=transport_format,
                         finish_reason=result.finish_reason,
                         input_tokens=result.input_tokens,
                         output_tokens=result.output_tokens,
                         latency_ms=result.latency_ms,
+                        provider_attempts=result.provider_attempts,
                         details=details,
                     )
                 )
-                if attempt < self._max_parse_retries:
+                if corrective_retries < self._max_parse_retries:
+                    corrective_retries += 1
                     request = request.model_copy(
                         update={
                             "messages": build_extraction_messages(
@@ -835,6 +856,7 @@ class ExtractionService:
                         grounding_rejections=0,
                         duplicate_entities=0,
                         duplicate_relations=0,
+                        truncation_retries=truncation_retries,
                     ),
                     llm_results=tuple(llm_results),
                     attempts=tuple(attempts),
@@ -873,11 +895,13 @@ class ExtractionService:
                 ExtractionAttempt(
                     number=len(attempts) + 1,
                     category=category,
+                    max_tokens=request.max_tokens,
                     transport_format=transport_format,
                     finish_reason=result.finish_reason,
                     input_tokens=result.input_tokens,
                     output_tokens=result.output_tokens,
                     latency_ms=result.latency_ms,
+                    provider_attempts=result.provider_attempts,
                     details=tuple(rejection_details),
                 )
             )
@@ -894,13 +918,13 @@ class ExtractionService:
                     grounding_rejections=grounding_rejections,
                     duplicate_entities=duplicate_entities,
                     duplicate_relations=duplicate_relations,
+                    truncation_retries=truncation_retries,
                     grounding_rejection_reasons=grounding_rejection_reasons,
                 ),
                 grounded_relation_evidence=grounded_relation_evidence,
                 llm_results=tuple(llm_results),
                 attempts=tuple(attempts),
             )
-        raise AssertionError("extraction retry loop must return")
 
     async def extract_and_persist(
         self,
