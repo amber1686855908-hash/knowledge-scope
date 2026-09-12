@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from knowledge_scope.retrieval.reranking import RerankedChunk
+from knowledge_scope.retrieval.unified import UnifiedCandidate
 
 from .schemas import RAGCitation
 
@@ -40,14 +41,20 @@ class ContextSelection:
             if citation.page_end != citation.page_start:
                 pages = f"{pages}-{citation.page_end}"
             section = " / ".join(citation.section_path) or "未命名章节"
-            rendered.append(
+            prefix = (
                 f"[{citation.marker}] document_id={citation.document_id} "
-                f"pages={pages} section={section}\n{item.text}"
+                f"pages={pages} section={section}"
             )
+            if citation.candidate_kind == "evidence":
+                prefix += (
+                    f" evidence_id={citation.evidence_id} modality={citation.modality}"
+                    " context_kind=representation"
+                )
+            rendered.append(f"{prefix}\n{item.text}")
         return "\n\n".join(rendered)
 
 
-def _citation_for(item: RerankedChunk, marker: str) -> RAGCitation:
+def _citation_for_dense(item: RerankedChunk, marker: str) -> RAGCitation:
     payload = item.chunk.payload
     return RAGCitation(
         marker=marker,
@@ -59,6 +66,47 @@ def _citation_for(item: RerankedChunk, marker: str) -> RAGCitation:
         source_block_ids=list(payload.source_block_ids),
         section_path=list(payload.section_path),
         section_title=payload.section_path[-1] if payload.section_path else None,
+        asset_refs=list(payload.asset_refs),
+    )
+
+
+def _citation_for_unified(item: UnifiedCandidate, marker: str) -> RAGCitation:
+    common = {
+        "marker": marker,
+        "document_id": item.document_id,
+        "knowledge_base_id": item.knowledge_base_id,
+        "page_start": item.page_start,
+        "page_end": item.page_end,
+        "source_block_ids": list(item.source_block_ids),
+        "section_path": list(item.section_path),
+        "section_title": item.section_path[-1] if item.section_path else None,
+        "asset_refs": list(item.asset_refs),
+        "final_rank": item.final_rank,
+        "final_reranker_score": item.final_reranker_score,
+        "branch_provenance": [
+            {
+                "branch": contribution.branch,
+                "rank": contribution.rank,
+                "score": contribution.score,
+                "graph_seed_entity_id": contribution.graph_seed_entity_id,
+                "graph_retrieval_reason": contribution.graph_retrieval_reason,
+                "graph_paths": list(contribution.graph_paths),
+            }
+            for contribution in item.branches
+        ],
+    }
+    if item.candidate_kind == "chunk":
+        return RAGCitation(
+            **common,
+            candidate_kind="chunk",
+            chunk_id=item.chunk_id,
+        )
+    return RAGCitation(
+        **common,
+        candidate_kind="evidence",
+        evidence_id=item.evidence_id,
+        modality=item.modality,
+        representation_ids=list(item.representation_ids),
     )
 
 
@@ -67,8 +115,15 @@ def _normalized_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+def _candidate_identity(citation: RAGCitation) -> tuple[str, str]:
+    local_id = citation.chunk_id if citation.candidate_kind == "chunk" else citation.evidence_id
+    if local_id is None:  # pragma: no cover - RAGCitation validates this invariant.
+        raise ValueError("context candidate has no local identity")
+    return citation.candidate_kind, local_id
+
+
 def assemble_context(
-    ranked_chunks: Sequence[RerankedChunk],
+    ranked_chunks: Sequence[RerankedChunk | UnifiedCandidate],
     *,
     budget_chars: int,
 ) -> ContextSelection:
@@ -86,18 +141,32 @@ def assemble_context(
         raise ValueError("budget_chars must be at least one")
 
     selected: list[SelectedContextItem] = []
-    seen_chunk_ids: set[str] = set()
+    seen_candidate_ids: set[tuple[str, str]] = set()
     selected_lineage: list[tuple[frozenset[str], str]] = []
     character_count = 0
 
     for ranked in ranked_chunks:
-        payload = ranked.chunk.payload
-        chunk_id = payload.chunk_id
-        text = payload.text.strip()
-        if not text or chunk_id in seen_chunk_ids:
+        if isinstance(ranked, RerankedChunk):
+            citation = _citation_for_dense(ranked, f"C{len(selected) + 1}")
+            text = ranked.chunk.payload.text.strip()
+        elif isinstance(ranked, UnifiedCandidate):
+            citation = _citation_for_unified(ranked, f"C{len(selected) + 1}")
+            if ranked.candidate_kind == "chunk":
+                # A chunk citation may only carry authoritative chunk text.  Its
+                # rerank carrier is not a substitute for missing source text.
+                text = (ranked.source_text or "").strip()
+            else:
+                # Evidence-level context is a searchable representation, while
+                # the citation remains anchored to the authoritative Evidence.
+                text = ranked.rerank_text.strip()
+        else:  # pragma: no cover - the public type restricts this input.
+            raise TypeError("unsupported RAG context candidate")
+
+        candidate_id = _candidate_identity(citation)
+        if not text or candidate_id in seen_candidate_ids:
             continue
 
-        source_blocks = frozenset(payload.source_block_ids)
+        source_blocks = frozenset(citation.source_block_ids)
         normalized_text = _normalized_text(text)
         if not normalized_text:
             continue
@@ -116,14 +185,14 @@ def assemble_context(
 
         selected.append(
             SelectedContextItem(
-                citation=_citation_for(ranked, f"C{len(selected) + 1}"),
+                citation=citation,
                 text=text,
                 truncated=False,
             )
         )
         character_count += len(text)
         selected_lineage.append((source_blocks, normalized_text))
-        seen_chunk_ids.add(chunk_id)
+        seen_candidate_ids.add(candidate_id)
 
     return ContextSelection(items=tuple(selected), character_count=character_count)
 

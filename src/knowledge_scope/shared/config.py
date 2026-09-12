@@ -102,6 +102,14 @@ class Settings(BaseSettings):
     sparse_index_path: Path = Path("data/evaluation/a4-3/sparse.sqlite3")
     sparse_bm25_k1: float = Field(default=1.2, gt=0, le=10)
     sparse_bm25_b: float = Field(default=0.75, ge=0, le=1)
+    unified_dense_candidate_limit: int = Field(default=20, ge=1, le=100)
+    unified_sparse_candidate_limit: int = Field(default=20, ge=1, le=100)
+    unified_graph_candidate_limit: int = Field(default=20, ge=1, le=500)
+    unified_multimodal_candidate_limit: int = Field(default=20, ge=1, le=100)
+    unified_candidate_pool_limit: int = Field(default=80, ge=1, le=500)
+    unified_result_limit: int = Field(default=20, ge=1, le=500)
+    unified_rerank_text_max_chars: int = Field(default=6_000, ge=1, le=20_000)
+    unified_failure_mode: Literal["strict", "degraded"] = "degraded"
 
     @model_validator(mode="after")
     def validate_graph_extraction_truncation_policy(self) -> Self:

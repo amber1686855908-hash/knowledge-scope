@@ -1035,6 +1035,7 @@ class QdrantRepresentationStore:
         *,
         limit: int,
         knowledge_base_id: UUID,
+        document_id: UUID | None = None,
         modality: RepresentationModalityFilter | None = None,
     ) -> list[RetrievedRepresentation]:
         """Search the independent collection with mandatory KB isolation."""
@@ -1054,6 +1055,7 @@ class QdrantRepresentationStore:
                 query=list(vector),
                 query_filter=self._filter(
                     knowledge_base_id=knowledge_base_id,
+                    document_id=document_id,
                     modality=modality,
                     searchable_only=True,
                     exclude_quarantined=True,
@@ -1573,6 +1575,7 @@ class MultimodalRepresentationRetrievalService:
         *,
         knowledge_base_id: UUID,
         top_k: int = 10,
+        document_id: UUID | None = None,
         modality: RepresentationModalityFilter | None = None,
     ) -> RepresentationRetrievalResult:
         """Return up to ``top_k`` Evidence results with raw hits preserved."""
@@ -1591,6 +1594,7 @@ class MultimodalRepresentationRetrievalService:
                 query_vector,
                 limit=candidate_limit,
                 knowledge_base_id=knowledge_base_id,
+                document_id=document_id,
                 modality=modality,
             )
         except RepresentationIndexError:

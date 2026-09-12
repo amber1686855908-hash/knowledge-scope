@@ -69,6 +69,10 @@ data/benchmarks/a4-2/
 data/evaluation/a4-3/
 data/benchmarks/a4-3/
 
+# Local A4.4 unified-retrieval runtime, model outputs, and smoke results
+data/evaluation/a4-4/
+data/benchmarks/a4-4/
+
 # IDE settings
 .idea/
 .vscode/

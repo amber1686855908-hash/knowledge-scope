@@ -15,22 +15,29 @@ from knowledge_scope.retrieval.embedding import EmbeddingModelError
 from knowledge_scope.retrieval.qdrant import VectorStoreError
 from knowledge_scope.retrieval.reranking import RerankedChunk, RerankerError, RerankingService
 from knowledge_scope.retrieval.service import DenseRetrievalService, RetrievalError, RetrievalResult
+from knowledge_scope.retrieval.unified import (
+    UnifiedRetrievalError,
+    UnifiedRetrievalResult,
+    UnifiedRetrievalService,
+)
 from knowledge_scope.shared.config import Settings
 
 from .context import ContextSelection, assemble_context
 from .prompt import RAG_PROMPT_VERSION, build_rag_messages
-from .schemas import RAGQueryRequest, RAGStreamEvent
+from .schemas import RAGQueryRequest, RAGRetrievalMode, RAGStreamEvent
 
 RAG_INSUFFICIENT_EVIDENCE = "当前检索到的资料不足以回答该问题。"
 
 
 @dataclass(frozen=True, slots=True)
 class RAGSelection:
-    """Dense candidates, reranked candidates, and selected LLM context."""
+    """Selected context plus the retrieval result that produced it."""
 
-    dense_result: RetrievalResult
-    reranked: tuple[RerankedChunk, ...]
+    retrieval_mode: RAGRetrievalMode
     context: ContextSelection
+    dense_result: RetrievalResult | None = None
+    reranked: tuple[RerankedChunk, ...] = ()
+    unified_result: UnifiedRetrievalResult | None = None
 
 
 class RAGService:
@@ -42,16 +49,19 @@ class RAGService:
         reranking: RerankingService,
         gateway: LLMGateway,
         settings: Settings,
+        *,
+        unified_retrieval: UnifiedRetrievalService | None = None,
     ) -> None:
         self._retrieval = retrieval
         self._reranking = reranking
         self._gateway = gateway
         self._settings = settings
+        self._unified_retrieval = unified_retrieval
         # Avoid queueing cancelled requests into the thread pool while keeping
         # synchronous local model work off the event loop.
         self._selection_gate = asyncio.Semaphore(1)
 
-    def _select_context(self, request: RAGQueryRequest) -> RAGSelection:
+    def _select_dense_context(self, request: RAGQueryRequest) -> RAGSelection:
         dense_result = self._retrieval.search(
             request.query,
             limit=self._settings.rag_candidate_limit,
@@ -69,10 +79,43 @@ class RAGService:
             budget_chars=self._settings.rag_context_budget_chars,
         )
         return RAGSelection(
+            retrieval_mode="dense",
+            context=context,
             dense_result=dense_result,
             reranked=reranked,
-            context=context,
         )
+
+    async def _select_unified_context(self, request: RAGQueryRequest) -> RAGSelection:
+        if self._unified_retrieval is None:
+            raise UnifiedRetrievalError("unified retrieval is not configured")
+        if request.knowledge_base_id is None:
+            raise ValueError("knowledge_base_id is required for unified retrieval")
+        unified_result = await self._unified_retrieval.search(
+            request.query,
+            request.knowledge_base_id,
+            document_id=request.document_id,
+        )
+        context = assemble_context(
+            unified_result.items,
+            budget_chars=self._settings.rag_context_budget_chars,
+        )
+        return RAGSelection(
+            retrieval_mode="unified",
+            context=context,
+            unified_result=unified_result,
+        )
+
+    @staticmethod
+    def _selection_metadata(selection: RAGSelection) -> dict[str, object]:
+        if selection.unified_result is None:
+            return {"retrieval_mode": "dense"}
+        return {
+            "retrieval_mode": "unified",
+            "retrieval_degraded": selection.unified_result.degraded,
+            "retrieval_branch_statuses": {
+                branch.branch: branch.status for branch in selection.unified_result.branches
+            },
+        }
 
     @staticmethod
     def _retrieval_error_category(error: BaseException) -> str:
@@ -80,7 +123,13 @@ class RAGService:
             return "request"
         if isinstance(
             error,
-            (EmbeddingModelError, RetrievalError, VectorStoreError, RerankerError),
+            (
+                EmbeddingModelError,
+                RetrievalError,
+                VectorStoreError,
+                RerankerError,
+                UnifiedRetrievalError,
+            ),
         ):
             return "retrieval"
         return "retrieval"
@@ -112,6 +161,9 @@ class RAGService:
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         finish_reason: str | None = None,
+        retrieval_mode: RAGRetrievalMode = "dense",
+        retrieval_degraded: bool | None = None,
+        retrieval_branch_statuses: dict[str, str] | None = None,
     ) -> tuple[RAGStreamEvent, RAGStreamEvent]:
         return (
             RAGStreamEvent(
@@ -125,6 +177,9 @@ class RAGService:
                     "prompt_version": RAG_PROMPT_VERSION,
                     "provider": provider,
                     "model": model,
+                    "retrieval_mode": retrieval_mode,
+                    "retrieval_degraded": retrieval_degraded,
+                    "retrieval_branch_statuses": retrieval_branch_statuses,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "finish_reason": finish_reason,
@@ -141,7 +196,10 @@ class RAGService:
         selection_started = perf_counter()
         try:
             async with self._selection_gate:
-                selection = await asyncio.to_thread(self._select_context, request)
+                if request.retrieval_mode == "unified":
+                    selection = await self._select_unified_context(request)
+                else:
+                    selection = await asyncio.to_thread(self._select_dense_context, request)
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -155,12 +213,14 @@ class RAGService:
                 ),
                 started=started,
                 retrieval_latency_ms=retrieval_latency_ms,
+                retrieval_mode=request.retrieval_mode,
             )
             for event in events:
                 yield event
             return
 
         retrieval_latency_ms = (perf_counter() - selection_started) * 1000
+        selection_metadata = self._selection_metadata(selection)
         if not selection.context.items:
             yield RAGStreamEvent(
                 event="answer_delta",
@@ -177,6 +237,7 @@ class RAGService:
                     "prompt_version": RAG_PROMPT_VERSION,
                     "provider": None,
                     "model": None,
+                    **selection_metadata,
                     "input_tokens": None,
                     "output_tokens": None,
                     "finish_reason": None,
@@ -230,6 +291,9 @@ class RAGService:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 finish_reason=finish_reason,
+                retrieval_mode=selection.retrieval_mode,
+                retrieval_degraded=selection_metadata.get("retrieval_degraded"),
+                retrieval_branch_statuses=selection_metadata.get("retrieval_branch_statuses"),
             )
             for event in events:
                 yield event
@@ -247,6 +311,9 @@ class RAGService:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 finish_reason=finish_reason,
+                retrieval_mode=selection.retrieval_mode,
+                retrieval_degraded=selection_metadata.get("retrieval_degraded"),
+                retrieval_branch_statuses=selection_metadata.get("retrieval_branch_statuses"),
             )
             for event in events:
                 yield event
@@ -269,6 +336,7 @@ class RAGService:
                 "prompt_version": RAG_PROMPT_VERSION,
                 "provider": provider or self._settings.llm_provider,
                 "model": model or self._settings.llm_model,
+                **selection_metadata,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "finish_reason": finish_reason,
