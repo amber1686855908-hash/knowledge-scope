@@ -11,7 +11,14 @@ from knowledge_scope.retrieval.qdrant import (
 from knowledge_scope.retrieval.reranking import RerankedChunk
 
 
-def _ranked(chunk_id: str, text: str, source_block_ids: list[str], rank: int) -> RerankedChunk:
+def _ranked(
+    chunk_id: str,
+    text: str,
+    source_block_ids: list[str],
+    rank: int,
+    *,
+    asset_refs: list[str] | None = None,
+) -> RerankedChunk:
     document_id = UUID("11111111-1111-4111-8111-111111111111")
     return RerankedChunk(
         chunk=RetrievedChunk(
@@ -27,7 +34,7 @@ def _ranked(chunk_id: str, text: str, source_block_ids: list[str], rank: int) ->
                 source_block_ids=source_block_ids,
                 section_path=["章节", chunk_id],
                 content_types=["text"],
-                asset_refs=[],
+                asset_refs=asset_refs or [],
                 text=text,
                 chunking_config_fingerprint="a" * 64,
                 embedding_model="Qwen/Qwen3-Embedding-0.6B",
@@ -38,6 +45,15 @@ def _ranked(chunk_id: str, text: str, source_block_ids: list[str], rank: int) ->
         dense_rank=rank,
         reranker_score=float(10 - rank),
     )
+
+
+def test_dense_context_preserves_asset_lineage_in_citation() -> None:
+    selection = assemble_context(
+        [_ranked("chunk-1", "图表说明", ["block-1"], 1, asset_refs=["assets/figure.png"])],
+        budget_chars=100,
+    )
+
+    assert selection.items[0].citation.asset_refs == ["assets/figure.png"]
 
 
 def test_context_suppresses_exact_duplicate_source_block_text() -> None:

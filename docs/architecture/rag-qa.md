@@ -1,16 +1,19 @@
 # A2.7 RAG QA
 
-KnowledgeScope 当前提供一个最小的文本 RAG QA 编排：
+KnowledgeScope 当前提供一个最小的 RAG QA 编排：
 
-`query → Qwen/Qwen3-Embedding-0.6B → Qdrant dense Top-10 → BGE reranker → bounded context → LLM Gateway`
+默认路径为 `query → Qwen/Qwen3-Embedding-0.6B → Qdrant dense Top-10 → BGE reranker → bounded context → LLM Gateway`。
+请求显式指定 `retrieval_mode=unified` 时，改为复用 A4.4 的统一候选池和最终重排，
+再进入同一套 context、citation 和 LLM Gateway 流程。
 
 ## 当前实现
 
-- `RAGService` 复用现有 dense retrieval、`RerankingService` 和 async `LLMGateway`，不重新运行 MinerU，也不引入 LangChain。
+- `RAGService` 默认复用现有 dense retrieval、`RerankingService` 和 async `LLMGateway`；`unified` 模式复用现有 `UnifiedRetrievalService` 的四条分支和最终候选，不在 RAG 层重复检索或重排。不重新运行 MinerU，也不引入 LangChain。
 - 默认检索 10 个 dense candidates，再用显式的 `bge-reranker-v2-m3` 重排；本地 embedding、Qdrant I/O 和 reranker 在 `asyncio.to_thread` 中执行，不占用 FastAPI event loop。每个进程内的模型 adapter 通过小粒度线程锁串行化同一模型的本地推理；RAG service 也会串行化一次 context selection。当前不承诺 GPU 并发吞吐。
-- 只把有文本的 chunk 放入回答上下文。上下文按 reranker 顺序选取，并受 `KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS` 字符预算限制；完整文本放不进剩余预算的 chunk 会被跳过，因此不会为未发送的尾部内容生成 citation。source block 重叠本身不等于重复，因为 A1.6 可能把同一 source block 拆成多个不重叠 chunk；只有同一 lineage 下的精确规范化重复文本会被抑制。没有可用文本时直接返回受控的“当前检索到的资料不足以回答该问题”，不会调用 LLM。
+- Dense 默认路径只把有文本的 chunk 放入回答上下文；Unified 路径还可以放入有界的 Evidence representation 文本。上下文按对应检索结果顺序选择，并受 `KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS` 字符预算限制；完整文本放不进剩余预算的候选会被跳过，因此不会为未发送的内容生成 citation。source block 重叠本身不等于重复，因为 A1.6 可能把同一 source block 拆成多个不重叠 chunk；只有同一 lineage 下的精确规范化重复文本会被抑制。没有可用文本时直接返回受控的“当前检索到的资料不足以回答该问题”，不会调用 LLM。
 - 字符预算只约束选中 chunk 文本的字符数，不包含 system/user prompt、marker 和协议包装，也不使用 tokenizer；它是近似的工程上限，不是精确的 LLM token context budget。当前没有 source block 的字符/token offset，因此无法可靠地自动消除所有近似重复内容。
-- 每个选中的 chunk 都生成确定性的请求内 marker（`C1`、`C2`……）。marker 和 document、page、chunk、source block、section 元数据由应用生成并在最终 SSE citation event 中返回；模型输出中的未知、重复或格式错误 marker 不会被解析为 citation metadata，应用只信任自己的 citation event。
+- 每个选中的 context item 都生成确定性的请求内 marker（`C1`、`C2`……）。marker 和 document、page、chunk 或 Evidence、source block、section 元数据由应用生成并在最终 SSE citation event 中返回；模型输出中的未知、重复或格式错误 marker 不会被解析为 citation metadata，应用只信任自己的 citation event。
+- `unified` 模式下，chunk 候选仍引用真实 `chunk_id`；image、table、formula 等 Evidence 候选引用真实 `evidence_id` 和 `representation_ids`，不伪造 `chunk_id`。representation 文本只是送入模型的可检索上下文载体，权威 citation lineage 仍来自当前 Evidence/Representation 状态；Unified branch 的 rank、score、Graph seed/path 会在 citation provenance 中保留。
 - prompt 版本为 `rag-qa-v1`，要求回答只依据给定资料、证据不足时明确说明、不得编造，并只能引用上下文中的应用 marker。
 
 ## SSE API
@@ -19,8 +22,17 @@ KnowledgeScope 当前提供一个最小的文本 RAG QA 编排：
 POST /api/v1/rag/query
 Content-Type: application/json
 
-{"query":"你的问题","knowledge_base_id":null,"document_id":null}
+{"query":"你的问题","knowledge_base_id":null,"document_id":null,"retrieval_mode":"dense"}
 ```
+
+要选择 A4.4 统一路径，必须显式指定知识库：
+
+```json
+{"query":"你的问题","knowledge_base_id":"<knowledge-base-uuid>","retrieval_mode":"unified"}
+```
+
+未知 `retrieval_mode` 会被拒绝；`unified` 缺少 `knowledge_base_id` 也会被拒绝。
+未指定该字段的既有客户端继续使用 `dense`。
 
 响应为 `text/event-stream`，事件顺序如下：
 

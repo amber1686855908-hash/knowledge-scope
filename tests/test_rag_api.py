@@ -15,8 +15,10 @@ from knowledge_scope.shared.config import Settings
 class _FakeRAGService:
     def __init__(self) -> None:
         self.closed = False
+        self.payloads: list[object] = []
 
-    async def stream(self, _payload: object):
+    async def stream(self, payload: object):
+        self.payloads.append(payload)
         try:
             yield RAGStreamEvent(event="answer_delta", data={"text": "答案"})
             yield RAGStreamEvent(
@@ -108,3 +110,62 @@ def test_rag_stream_event_rejects_malformed_citation_metadata() -> None:
 def test_rag_query_rejects_unbounded_input() -> None:
     with pytest.raises(ValidationError):
         RAGQueryRequest(query="x" * 4_001)
+
+
+def test_rag_endpoint_rejects_unified_mode_without_knowledge_base() -> None:
+    service = _FakeRAGService()
+    application = create_app(_settings(), vector_store=object(), rag_service=service)  # type: ignore[arg-type]
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=application)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.post(
+                "/api/v1/rag/query",
+                json={"query": "问题", "retrieval_mode": "unified"},
+            )
+
+    response = anyio.run(request)
+
+    assert response.status_code == 422
+
+
+def test_rag_endpoint_rejects_unknown_retrieval_mode() -> None:
+    service = _FakeRAGService()
+    application = create_app(_settings(), vector_store=object(), rag_service=service)  # type: ignore[arg-type]
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=application)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.post(
+                "/api/v1/rag/query",
+                json={"query": "问题", "retrieval_mode": "other"},
+            )
+
+    response = anyio.run(request)
+
+    assert response.status_code == 422
+
+
+def test_rag_endpoint_passes_unified_mode_to_service() -> None:
+    service = _FakeRAGService()
+    application = create_app(_settings(), vector_store=object(), rag_service=service)  # type: ignore[arg-type]
+    knowledge_base_id = "22222222-2222-4222-8222-222222222222"
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=application)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.post(
+                "/api/v1/rag/query",
+                json={
+                    "query": "问题",
+                    "knowledge_base_id": knowledge_base_id,
+                    "retrieval_mode": "unified",
+                },
+            )
+
+    response = anyio.run(request)
+
+    assert response.status_code == 200
+    assert isinstance(service.payloads[0], RAGQueryRequest)
+    assert service.payloads[0].retrieval_mode == "unified"
+    assert str(service.payloads[0].knowledge_base_id) == knowledge_base_id

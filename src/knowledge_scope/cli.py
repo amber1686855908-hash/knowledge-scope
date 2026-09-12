@@ -213,6 +213,11 @@ from knowledge_scope.retrieval.sparse import (
     SparseIndexStore,
     load_canonical_chunk_records,
 )
+from knowledge_scope.retrieval.unified import (
+    UnifiedRetrievalConfig,
+    UnifiedRetrievalError,
+    UnifiedRetrievalService,
+)
 from knowledge_scope.shared import build_health_report, get_settings
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
@@ -944,6 +949,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="strict fails if either branch fails; degraded returns the surviving branch",
     )
 
+    unified_search = subparsers.add_parser(
+        "unified-search",
+        help="run dense, sparse, graph, and multimodal retrieval with final BGE reranking",
+    )
+    unified_search.add_argument("query")
+    unified_search.add_argument("--knowledge-base-id", type=UUID, required=True)
+    unified_search.add_argument("--document-id", type=UUID)
+    unified_search.add_argument("--dense-limit", type=_positive_int)
+    unified_search.add_argument("--sparse-limit", type=_positive_int)
+    unified_search.add_argument("--graph-limit", type=_positive_int)
+    unified_search.add_argument("--multimodal-limit", type=_positive_int)
+    unified_search.add_argument("--candidate-pool-limit", type=_positive_int)
+    unified_search.add_argument("--limit", type=_positive_int)
+    unified_search.add_argument(
+        "--failure-mode",
+        choices=("strict", "degraded"),
+        help="strict fails if a branch fails; degraded returns successful branches with status",
+    )
+
     graph_corpus_audit = subparsers.add_parser(
         "graph-corpus-audit",
         help="audit registered corpus, chunk coverage, and current Neo4j graph coverage",
@@ -1645,6 +1669,121 @@ def _run_hybrid_search(args: argparse.Namespace) -> int:
     finally:
         if qdrant_store is not None:
             qdrant_store.close()
+        if graph_store is not None:
+            graph_store.close()
+
+
+def _unified_retrieval_config(
+    settings: Settings,
+    args: argparse.Namespace,
+) -> UnifiedRetrievalConfig:
+    """Build A4.4 branch bounds from Settings and small CLI overrides."""
+
+    values = {
+        "dense_candidate_limit": settings.unified_dense_candidate_limit,
+        "sparse_candidate_limit": settings.unified_sparse_candidate_limit,
+        "graph_candidate_limit": settings.unified_graph_candidate_limit,
+        "multimodal_candidate_limit": settings.unified_multimodal_candidate_limit,
+        "candidate_pool_limit": settings.unified_candidate_pool_limit,
+        "result_limit": settings.unified_result_limit,
+        "rerank_text_max_chars": settings.unified_rerank_text_max_chars,
+        "failure_mode": settings.unified_failure_mode,
+    }
+    for argument, setting in (
+        ("dense_limit", "dense_candidate_limit"),
+        ("sparse_limit", "sparse_candidate_limit"),
+        ("graph_limit", "graph_candidate_limit"),
+        ("multimodal_limit", "multimodal_candidate_limit"),
+        ("candidate_pool_limit", "candidate_pool_limit"),
+        ("limit", "result_limit"),
+        ("failure_mode", "failure_mode"),
+    ):
+        value = getattr(args, argument, None)
+        if value is not None:
+            values[setting] = value
+    return UnifiedRetrievalConfig(**values)
+
+
+def _run_unified_search(args: argparse.Namespace) -> int:
+    """Run all existing retrieval branches with the final local BGE reranker."""
+
+    qdrant_store = None
+    representation_store = None
+    sparse_store = None
+    graph_store = None
+    try:
+        settings = get_settings()
+        qdrant_store = QdrantVectorStore(settings)
+        representation_store = QdrantRepresentationStore(settings)
+        sparse_store = SparseIndexStore(
+            settings.sparse_index_path,
+            config=SparseIndexConfig(
+                bm25_k1=settings.sparse_bm25_k1,
+                bm25_b=settings.sparse_bm25_b,
+            ),
+        )
+        graph_store = Neo4jGraphStore(settings)
+        embedder = QwenEmbeddingModel(settings)
+        dense_retrieval = DenseRetrievalService(qdrant_store, embedder)
+        multimodal_retrieval = MultimodalRepresentationRetrievalService(
+            representation_store,
+            embedder,
+        )
+        reranker_settings = settings.model_copy(
+            update={
+                "reranker_model_key": "bge-reranker-v2-m3",
+                "reranker_model_revision": BGE_RERANKER_MODEL_REVISION,
+            }
+        )
+        final_reranker = create_local_reranker(
+            reranker_settings,
+            model_key="bge-reranker-v2-m3",
+        )
+        result = asyncio.run(
+            UnifiedRetrievalService(
+                dense_retrieval,
+                sparse_store,
+                GraphRetrievalService(
+                    graph_store,
+                    config=_graph_retrieval_config(settings),
+                ),
+                multimodal_retrieval,
+                final_reranker,
+                chunk_lookup=qdrant_store,
+                config=_unified_retrieval_config(settings, args),
+            ).search(
+                args.query,
+                args.knowledge_base_id,
+                document_id=args.document_id,
+            )
+        )
+        output = result.model_dump(mode="json")
+        output["source_distribution"] = result.source_distribution
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return 0
+    except (
+        EmbeddingModelError,
+        GraphRetrievalError,
+        GraphStoreError,
+        RepresentationIndexError,
+        RerankerError,
+        RetrievalError,
+        SparseIndexError,
+        UnifiedRetrievalError,
+        ValidationError,
+        VectorStoreError,
+        ValueError,
+    ) as error:
+        print("unified_search_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        if qdrant_store is not None:
+            qdrant_store.close()
+        if representation_store is not None:
+            representation_store.close()
+        if sparse_store is not None:
+            sparse_store.close()
         if graph_store is not None:
             graph_store.close()
 
@@ -2402,6 +2541,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_rerank_search(args)
     if args.command == "hybrid-search":
         return _run_hybrid_search(args)
+    if args.command == "unified-search":
+        return _run_unified_search(args)
     if args.command == "graph-corpus-audit":
         return _run_graph_corpus_audit(args)
     if args.command == "graph-corpus-estimate":

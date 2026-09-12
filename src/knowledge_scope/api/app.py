@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from knowledge_scope import __version__
 from knowledge_scope.graph.neo4j import Neo4jGraphStore
+from knowledge_scope.graph.retrieval import GraphRetrievalConfig
+from knowledge_scope.graph.retrieval_service import GraphRetrievalService
 from knowledge_scope.llm.gateway import LLMGateway
 from knowledge_scope.llm.providers import create_llm_provider
 from knowledge_scope.llm.usage import DatabaseUsageRecorder
@@ -19,11 +21,14 @@ from knowledge_scope.rag.service import RAGService
 from knowledge_scope.retrieval.embedding import QwenEmbeddingModel
 from knowledge_scope.retrieval.qdrant import QdrantVectorStore
 from knowledge_scope.retrieval.representation_index import (
+    MultimodalRepresentationRetrievalService,
     QdrantRepresentationStore,
     validate_representation_collection_role,
 )
 from knowledge_scope.retrieval.reranking import RerankingService, create_local_reranker
 from knowledge_scope.retrieval.service import DenseRetrievalService
+from knowledge_scope.retrieval.sparse import SparseIndexConfig, SparseIndexStore
+from knowledge_scope.retrieval.unified import UnifiedRetrievalConfig, UnifiedRetrievalService
 from knowledge_scope.shared import build_health_report, get_settings
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
@@ -50,6 +55,17 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             )
         if application.state.rag_service is None:
             settings: Settings = application.state.settings
+            if application.state.sparse_store is None:
+                application.state.sparse_store = SparseIndexStore(
+                    settings.sparse_index_path,
+                    config=SparseIndexConfig(
+                        bm25_k1=settings.sparse_bm25_k1,
+                        bm25_b=settings.sparse_bm25_b,
+                    ),
+                )
+            sparse_store = application.state.sparse_store
+            if sparse_store is None:  # pragma: no cover - initialized above.
+                raise RuntimeError("sparse store is not initialized")
             provider = create_llm_provider(settings)
             application.state.llm_provider = provider
             gateway = LLMGateway(
@@ -61,14 +77,51 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
                 application.state.vector_store,
                 application.state.embedding_model,
             )
-            reranking = RerankingService(
-                create_local_reranker(settings, model_key="bge-reranker-v2-m3")
+            reranker = create_local_reranker(settings, model_key="bge-reranker-v2-m3")
+            reranking = RerankingService(reranker)
+            graph_retrieval = GraphRetrievalService(
+                application.state.graph_store,
+                config=GraphRetrievalConfig(
+                    max_seed_entities=settings.graph_retrieval_max_seed_entities,
+                    max_hops=settings.graph_retrieval_max_hops,
+                    max_neighbors=settings.graph_retrieval_max_neighbors,
+                    max_relations=settings.graph_retrieval_max_relations,
+                    max_evidence=settings.graph_retrieval_max_evidence,
+                    max_entity_scan=settings.graph_retrieval_max_entity_scan,
+                    lexical_threshold=settings.graph_retrieval_lexical_threshold,
+                ),
+            )
+            representation_store = application.state.representation_store
+            if representation_store is None:  # pragma: no cover - initialized above.
+                raise RuntimeError("representation store is not initialized")
+            unified_retrieval = UnifiedRetrievalService(
+                retrieval,
+                sparse_store,
+                graph_retrieval,
+                MultimodalRepresentationRetrievalService(
+                    representation_store,
+                    application.state.embedding_model,
+                ),
+                reranker,
+                chunk_lookup=application.state.vector_store,
+                config=UnifiedRetrievalConfig(
+                    dense_candidate_limit=settings.unified_dense_candidate_limit,
+                    sparse_candidate_limit=settings.unified_sparse_candidate_limit,
+                    graph_candidate_limit=settings.unified_graph_candidate_limit,
+                    multimodal_candidate_limit=settings.unified_multimodal_candidate_limit,
+                    candidate_pool_limit=settings.unified_candidate_pool_limit,
+                    result_limit=settings.unified_result_limit,
+                    rerank_text_max_chars=settings.unified_rerank_text_max_chars,
+                    failure_mode=settings.unified_failure_mode,
+                    reranker_model_id=reranker.model_id,
+                ),
             )
             application.state.rag_service = RAGService(
                 retrieval,
                 reranking,
                 gateway,
                 settings,
+                unified_retrieval=unified_retrieval,
             )
         yield
     finally:
@@ -78,6 +131,8 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         application.state.vector_store.close()
         if application.state.representation_store is not None:
             application.state.representation_store.close()
+        if application.state.sparse_store is not None:
+            application.state.sparse_store.close()
         application.state.graph_store.close()
 
 
@@ -90,6 +145,7 @@ def create_app(
     rag_service: RAGService | None = None,
     graph_store: Neo4jGraphStore | None = None,
     representation_store: QdrantRepresentationStore | None = None,
+    sparse_store: SparseIndexStore | None = None,
 ) -> FastAPI:
     """Create the API application with validated runtime settings."""
     runtime_settings = settings if settings is not None else get_settings()
@@ -110,6 +166,7 @@ def create_app(
     application.state.rag_service = rag_service
     application.state.graph_store = graph_store or Neo4jGraphStore(runtime_settings)
     application.state.representation_store = representation_store
+    application.state.sparse_store = sparse_store
     application.state.llm_provider = None
     application.add_middleware(
         CORSMiddleware,

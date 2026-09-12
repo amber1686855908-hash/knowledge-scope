@@ -4,7 +4,7 @@ KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，当前提供�
 
 ## 当前状态
 
-当前已完成 A3.7，提供全量图语料构建、覆盖审计和只读混合检索评测基础，目前提供：
+当前已完成 A4.4，提供全量图语料构建、覆盖审计、只读混合检索评测和统一多检索器候选池基础，目前提供：
 
 - 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health、parse-document 和 chunk-document CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
@@ -40,7 +40,7 @@ Phase A2.5 已完成冻结 A2.1 评测集上的检索阶段基准，比较了同
 
 Phase A2.6 已完成 provider-independent 的 async LLM gateway 基础：`knowledge_scope.llm` 提供统一的 system/user 消息、模型与生成参数、普通 completion、streaming event 和规范化结果；首个真实适配器使用 OpenAI-compatible 的 DeepSeek 配置。每次已执行的逻辑调用都会尝试记录到 `llm_usage_records`，保存 provider、model、task type、token、延迟、成功状态、错误类别和可选的配置驱动成本估算；API key 不写入日志或记录。使用 `uv run knowledgescope llm-smoke-test` 可对已配置的 provider 执行一次开发者 smoke test；当前不包含 GraphRAG、Agent 或聊天页面。详见 [A2.6 LLM gateway 说明](docs/architecture/llm-gateway.md)。
 
-Phase A2.7 已完成首个文本 RAG QA 编排：`POST /api/v1/rag/query` 复用 `Qwen/Qwen3-Embedding-0.6B`、Qdrant dense Top-10、显式 `BAAI/bge-reranker-v2-m3` 和 A2.6 LLM Gateway，通过 SSE 返回增量回答、应用生成的 citation metadata 及最终状态/usage。上下文按 reranker 顺序选择，抑制同一 lineage 下的精确重复文本，并受 `KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS` 字符预算限制；该预算只约束 chunk 文本字符数，不是 tokenizer-aware 的精确 LLM token context budget。无可用文本证据时受控返回证据不足，不调用 LLM；本地模型推理在共享 adapter 上串行化，当前不承诺 GPU 并发吞吐。请求 query 限制为 4,000 字符，当前接口适用于受信任的本地/内网开发环境，不应直接暴露公网。当前没有前端聊天页面、答案质量 benchmark 或后续 GraphRAG/Agent 能力；详见 [A2.7 RAG QA 说明](docs/architecture/rag-qa.md)。
+Phase A2.7 已完成首个文本 RAG QA 编排：`POST /api/v1/rag/query` 复用 `Qwen/Qwen3-Embedding-0.6B`、Qdrant dense Top-10、显式 `BAAI/bge-reranker-v2-m3` 和 A2.6 LLM Gateway，通过 SSE 返回增量回答、应用生成的 citation metadata 及最终状态/usage。上下文按 reranker 顺序选择，抑制同一 lineage 下的精确重复文本，并受 `KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS` 字符预算限制；该预算只约束 chunk 文本字符数，不是 tokenizer-aware 的精确 LLM token context budget。无可用文本证据时受控返回证据不足，不调用 LLM；本地模型推理在共享 adapter 上串行化，当前不承诺 GPU 并发吞吐。请求 query 限制为 4,000 字符，当前接口适用于受信任的本地/内网开发环境，不应直接暴露公网。A2.7 的默认 `retrieval_mode` 仍为 `dense`；A4.4 另提供显式的 `unified` 模式，见下文。当前没有前端聊天页面、答案质量 benchmark 或后续 GraphRAG/Agent 能力；详见 [A2.7 RAG QA 说明](docs/architecture/rag-qa.md)。
 
 Phase A3.1 已完成 provider-independent 的知识图谱 schema 与 Neo4j 基础设施：`knowledge_scope.graph` 提供带来源校验的 `GraphEntity`、`GraphRelation` 和 `GraphProvenance`。实体/关系使用包含知识库、文档本地作用域的结构化 `entity_v2_*`、`relation_v2_*` ID；这只是抽取阶段的 provisional/local identity，不会按名称自动执行跨文档或跨知识库实体链接。`KnowledgeEvidence` 节点保存 `document_id`、页码、`chunk_id` 和 `source_block_ids` lineage，extraction provenance 保存在证据上下文中。`Neo4jGraphStore` 支持连接检查、显式 schema/index 初始化、实体/关系幂等 upsert、别名集合并集、按文档清理和基础查找；Neo4j 使用本地 Docker 服务，数据保存在 named volume。PostgreSQL、文件系统与 Neo4j 之间不是分布式原子事务，Neo4j 单库写入失败由事务回滚，跨系统恢复仍需上层补偿。A3.1 本身不负责 LLM 实体/关系抽取、实体链接、GraphRAG、混合检索或前端图可视化；A3.2 的抽取能力见下文，基础设施说明见 [A3.1 知识图谱基础设施说明](docs/architecture/knowledge-graph.md)。
 
@@ -63,6 +63,8 @@ Phase A4.1 已建立 `knowledge_scope.evidence` 的多模态 Evidence 与多表�
 Phase A4.2 已建立独立的 `knowledge_scope.retrieval.representation_index`：从 A4.1 的 Evidence 生成 text、image、table、formula 的可搜索文本 representation，并通过 `Qwen/Qwen3-Embedding-0.6B` 写入单独的 `knowledgescope_representations_v1` collection。它与受保护的 `knowledgescope_chunks_v1` 做 collection-role 隔离；保护不依赖可变的 chunk collection 配置，写入/创建/删除边界还会识别已存在的 A2.3 chunk payload 与 point identity。写入边界会校验 schema、payload contract 和包含 model-native pooling 的 embedding fingerprint；结果按 Evidence 去重，同时保留 representation、KB/document/page/block、section 和 asset lineage。正常查询强制 `searchable=true` 并排除 quarantine，文档级 build/rebuild 采用先建立新点、失败补偿恢复旧 Evidence/points 的 document-scoped 语义。使用带 `representation_store` 的解析协调路径时，canonical、旧 chunks、Evidence 与 representation points 作为一个逻辑 generation 共同切换；解析、物化、embedding、Qdrant replacement 或切换前的清理失败都会恢复旧 canonical 和全部旧派生状态，已提交 generation 的旧临时目录清理失败则保留新 generation 并可重试清理，未解决的补偿会 fail closed。删除先隔离表示，权威删除成功后再物理清理，跨 PostgreSQL、文件系统和 Qdrant 不承诺分布式原子事务。图片只在已有 caption 或同一 canonical source 的有限 text/title context 可用时进入文本索引，opaque `asset_ref` 不会被当作文本；本阶段不生成 caption/OCR，不使用视觉 embedding，不修改 A3 图检索、RRF 或 RAG 接口。覆盖审计和查询命令见 [A4.2 Representation Index 与检索说明](docs/architecture/multimodal-representation-index.md)，运行口径见 [A4.2 验证记录](docs/benchmarks/a4-2-multimodal-index.md)。
 
 Phase A4.3 已建立独立的 `knowledge_scope.retrieval.sparse` 文本词法检索分支：使用标准库 SQLite 保存带 generation contract 的 BM25 倒排索引，复用 A1.5 canonical artifacts 和 A1.6 默认 `chunk_document()`，不重新运行 MinerU，也不修改 `knowledgescope_chunks_v1`、A4.2 representation collection、Neo4j 或冻结评测数据。`mixed-script-v2` tokenizer 对中文保留 unigram/bigram，并在 Latin/数字与 CJK 之间切分，同时对英文、数字、缩写和公式操作数保留确定性 token；每次查询必须显式提供 `knowledge_base_id`，结果保留 document/page/chunk/source block/section lineage。索引 build/rebuild、audit、query 和文档级删除命令见 [A4.3 Sparse / Lexical Retrieval 说明](docs/architecture/sparse-retrieval.md)，运行口径见 [A4.3 基准记录](docs/benchmarks/a4-3-sparse-retrieval.md)。当前只建立 BM25 baseline 和描述性 Dense-vs-Sparse 诊断，不代表 sparse 已改善检索质量，也不包含融合、视觉 embedding、OCR 或 LLM caption。
+
+Phase A4.4 已建立统一多检索器候选池和最终本地 reranker：`knowledge_scope.retrieval.unified` 并发复用已有 Dense、A4.3 Sparse、A3.4 Graph 和 A4.2 Multimodal representation 分支，按 chunk 或 authoritative Evidence 身份去重，使用有界 round-robin 候选池，并由 `BAAI/bge-reranker-v2-m3` 对统一的 bounded `rerank_text` 做最终排序。结果保留 KB/document/page/source block/section/asset lineage、分支 rank/score、Graph seed/path、Evidence 和 representation provenance；分支状态区分 `success`、`empty`、`failed`、`timed_out` 和 `cancelled`，支持 `degraded` 与 `strict` 模式。`uv run knowledgescope unified-search` 可执行不调用外部 Provider 的开发者查询；现有 `POST /api/v1/rag/query` 通过 `retrieval_mode=unified` 显式选择这条路径，默认 `dense` 客户端行为保持不变。统一路径可把 chunk 和 Evidence 级 image/table/formula representation 送入有界上下文，并在 citation 中保留对应 lineage；它不把 representation 伪装成 chunk，也不改变 RAG 的应用侧 citation 来源。A4.4 不修改 A2/A3 冻结数据、不重新实现既有 retriever，也不在本阶段再次使用 RRF。详见 [A4.4 统一检索说明](docs/architecture/unified-retrieval.md)。
 
 当前 A1.5/A1.6 的 255 个 benchmark 文档可以通过显式的 corpus registration workflow 登记为一个指定 KnowledgeBase。该流程不从文件名、路径、学科或正文推断归属，不重新运行 MinerU、分块或 embedding，也不复制/移动源语料；登记后的 `Document` 使用 `status=registered` 和 `storage_kind=external_reference`，`storage_key` 保持为空，原有普通上传文档的本地托管语义不变。登记前会校验 255 个唯一文档、canonical artifact、7,524 个 chunk lineage、目标 KB 和所有权冲突，并在一个 PostgreSQL 事务中完成；重复执行是幂等的，冲突会整体拒绝。登记还会生成被忽略的 `data/evaluation/a3-5/a2-1-kb-mapping.jsonl`，将冻结 A2.1 的 108 个 item 映射到同一显式 KB，但不会修改冻结标注；完整的存储与升级说明见 [benchmark corpus registration](docs/architecture/benchmark-corpus-registration.md)。
 
@@ -210,7 +212,7 @@ uv run knowledgescope multimodal-index search "温度表中的检查项目是什
   --limit 5
 ```
 
-该索引只使用现有 canonical 内容和有限结构上下文，不代表视觉检索、BM25、最终融合或统一 multimodal RAG 已实现。
+该索引只使用现有 canonical 内容和有限结构上下文，不代表视觉检索质量、BM25 或最终融合质量；统一候选与 RAG 接入由 A4.4 单独提供。
 
 构建独立的文本 BM25 索引（默认写入被忽略的 `data/evaluation/a4-3/sparse.sqlite3`）：
 
@@ -232,6 +234,21 @@ uv run knowledgescope sparse-index query "温度 2024 H2O" \
 
 A4.3 的 SQLite、查询结果和诊断文件属于运行时 derived state；BM25 分数只在
 同一 sparse contract 内用于排序，不与 dense/graph 分数直接相加。
+
+执行 A4.4 统一多检索器查询（需要本地 Qdrant、Neo4j、Sparse index 以及已有的
+embedding/reranker 依赖）：
+
+```bash
+uv sync --group embedding-benchmark --group reranker-benchmark
+uv run knowledgescope unified-search "查询内容" \
+  --knowledge-base-id <knowledge-base-uuid>
+```
+
+默认使用 `KNOWLEDGE_SCOPE_UNIFIED_FAILURE_MODE=degraded`；分支失败会在 typed
+结果中保留失败状态，不会伪装成空结果。使用 `--failure-mode strict` 可要求四条
+分支均成功。候选池、结果数和 rerank 文本字符上限均可通过
+`KNOWLEDGE_SCOPE_UNIFIED_*` 配置。A4.4 只提供统一候选与最终重排的功能基础，
+当前没有 A4.5 质量 benchmark 或多路检索质量结论。
 
 安装本地 reranker 基准所需依赖并运行完整比较：
 
@@ -385,4 +402,7 @@ npm run build
 
 ## 后续方向
 
-后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并在当前 dense retrieval、reranker、图检索、A4.2 文本 representation 和 A4.3 BM25 baseline 基础上评估视觉 embedding、最终多路融合、GraphRAG、ChatBI 和 NL2SQL；当前版本不包含这些后续能力。
+后续阶段可在当前 dense retrieval、reranker、图检索、A4.2 文本 representation、
+A4.3 BM25 baseline 和 A4.4 统一候选池基础上进行质量评测，并继续扩展文档
+ingestion、视觉 embedding、GraphRAG、ChatBI 和 NL2SQL；当前版本不包含这些后续
+能力，也不把 A4.4 的功能基础表述为已经验证的质量提升。

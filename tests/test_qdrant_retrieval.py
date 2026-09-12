@@ -392,6 +392,38 @@ def test_qdrant_payload_attribution_preserves_point_and_vector_identity() -> Non
     assert repaired.payload["chunk_id"] == "chunk-1"
 
 
+def test_chunk_payload_lookup_preserves_requested_scope() -> None:
+    settings = Settings(_env_file=None)
+    client = _FakeQdrantClient()
+    store = QdrantVectorStore(settings, client=client)
+    document_id = uuid4()
+    knowledge_base_id = uuid4()
+    store.replace_document([_point(document_id, "chunk-1", knowledge_base_id)])
+
+    payload = store.get_chunk_payload(
+        knowledge_base_id=knowledge_base_id,
+        document_id=document_id,
+        chunk_id="chunk-1",
+    )
+    assert payload is not None
+    assert payload.chunk_id == "chunk-1"
+    assert payload.knowledge_base_id == knowledge_base_id
+    with pytest.raises(VectorStoreError, match="outside the requested scope"):
+        store.get_chunk_payload(
+            knowledge_base_id=uuid4(),
+            document_id=document_id,
+            chunk_id="chunk-1",
+        )
+    assert (
+        store.get_chunk_payload(
+            knowledge_base_id=knowledge_base_id,
+            document_id=document_id,
+            chunk_id="missing",
+        )
+        is None
+    )
+
+
 @pytest.mark.integration
 def test_real_qdrant_contract_round_trip() -> None:
     if os.environ.get("KNOWLEDGE_SCOPE_RUN_QDRANT_INTEGRATION") != "1":

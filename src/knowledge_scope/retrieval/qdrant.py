@@ -512,6 +512,52 @@ class QdrantVectorStore:
         except Exception as error:
             raise VectorStoreError("Qdrant document vectors could not be deleted") from error
 
+    def get_chunk_payload(
+        self,
+        *,
+        knowledge_base_id: UUID,
+        document_id: UUID,
+        chunk_id: str,
+    ) -> ChunkVectorPayload | None:
+        """Resolve one current chunk payload for graph-backed reranking text.
+
+        Graph retrieval returns authoritative evidence lineage but intentionally
+        does not duplicate chunk text.  This bounded lookup lets a unified
+        retriever use the existing chunk collection as the source of reranking
+        text without trusting graph or Qdrant payloads from another scope.
+        """
+        if not chunk_id.strip():
+            raise ValueError("chunk_id must not be blank")
+        readiness = self.readiness()
+        if readiness.status == "available":
+            return None
+        if readiness.status == "unavailable":
+            raise VectorStoreError(readiness.error or "Qdrant is unavailable")
+        point_id = point_id_for_chunk(chunk_id)
+        try:
+            records = self._get_client().retrieve(
+                collection_name=self.collection_name,
+                ids=[str(point_id)],
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not records:
+                return None
+            if len(records) != 1 or _as_point_id(records[0].id) != point_id:
+                raise VectorStoreError("Qdrant returned an inconsistent chunk identity")
+            payload = ChunkVectorPayload.model_validate(records[0].payload or {})
+            if (
+                payload.knowledge_base_id != knowledge_base_id
+                or payload.document_id != document_id
+                or payload.chunk_id != chunk_id
+            ):
+                raise VectorStoreError("Qdrant returned a chunk outside the requested scope")
+            return payload
+        except VectorStoreError:
+            raise
+        except Exception as error:
+            raise VectorStoreError("Qdrant chunk payload lookup failed") from error
+
     def search(
         self,
         query_vector: Sequence[float],
