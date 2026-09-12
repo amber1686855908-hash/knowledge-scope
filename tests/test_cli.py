@@ -173,6 +173,47 @@ def test_qdrant_attribution_parser_defaults_to_audit_and_supports_apply() -> Non
     assert apply_args.apply is True
 
 
+def test_multimodal_index_parser_has_explicit_scope_and_filters() -> None:
+    audit_args = build_parser().parse_args(
+        [
+            "multimodal-index",
+            "audit",
+            "--knowledge-base-id",
+            "11111111-1111-1111-1111-111111111111",
+        ]
+    )
+    search_args = build_parser().parse_args(
+        [
+            "multimodal-index",
+            "search",
+            "温度表",
+            "--knowledge-base-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--modality",
+            "table",
+            "--limit",
+            "3",
+        ]
+    )
+
+    assert audit_args.multimodal_index_action == "audit"
+    assert search_args.modality == "table"
+    assert search_args.limit == 3
+
+    all_args = build_parser().parse_args(
+        [
+            "multimodal-index",
+            "search",
+            "设备维护",
+            "--knowledge-base-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--modality",
+            "all",
+        ]
+    )
+    assert all_args.modality == "all"
+
+
 def test_corpus_registration_parser_requires_explicit_knowledge_base() -> None:
     args = build_parser().parse_args(
         [

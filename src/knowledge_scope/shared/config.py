@@ -45,6 +45,10 @@ class Settings(BaseSettings):
         default="knowledgescope_chunks_v1",
         pattern=r"^[a-z0-9][a-z0-9_-]{2,62}$",
     )
+    qdrant_representation_collection_name: str = Field(
+        default="knowledgescope_representations_v1",
+        pattern=r"^[a-z0-9][a-z0-9_-]{2,62}$",
+    )
     neo4j_uri: str = Field(default="bolt://127.0.0.1:7687", min_length=1)
     neo4j_username: str = Field(default="neo4j", min_length=1)
     neo4j_password: SecretStr | None = None
@@ -119,6 +123,16 @@ class Settings(BaseSettings):
             )
         if any(current >= following for current, following in pairwise(budgets)):
             raise ValueError("graph extraction truncation budgets must be strictly increasing")
+        return self
+
+    @model_validator(mode="after")
+    def validate_qdrant_collection_roles(self) -> Self:
+        """Keep the frozen chunk collection separate from A4.2 representations."""
+
+        if self.qdrant_collection_name == self.qdrant_representation_collection_name:
+            raise ValueError(
+                "qdrant_collection_name and qdrant_representation_collection_name must differ"
+            )
         return self
 
     @property

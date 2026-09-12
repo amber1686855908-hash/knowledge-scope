@@ -188,6 +188,19 @@ from knowledge_scope.retrieval.qdrant_attribution import (
     load_authoritative_document_mappings,
     point_identity_signature,
 )
+from knowledge_scope.retrieval.representation_index import (
+    MultimodalRepresentationRetrievalService,
+    QdrantRepresentationStore,
+    RepresentationCollectionConfigurationError,
+    RepresentationIndexError,
+    audit_representation_index,
+)
+from knowledge_scope.retrieval.representation_index import (
+    index_canonical_corpus as index_representation_corpus,
+)
+from knowledge_scope.retrieval.representation_index import (
+    index_canonical_document as index_representation_document,
+)
 from knowledge_scope.retrieval.reranking import (
     RerankerError,
     RerankingService,
@@ -643,6 +656,52 @@ def build_parser() -> argparse.ArgumentParser:
     qdrant_search.add_argument("--knowledge-base-id", type=UUID)
     qdrant_search.add_argument("--document-id", type=UUID)
     qdrant_search.add_argument("--limit", type=_positive_int, default=10)
+
+    multimodal_index = subparsers.add_parser(
+        "multimodal-index",
+        help="audit, build, and query the independent multimodal representation index",
+    )
+    multimodal_actions = multimodal_index.add_subparsers(
+        dest="multimodal_index_action",
+        required=True,
+    )
+    multimodal_audit = multimodal_actions.add_parser(
+        "audit",
+        help="audit source Evidence and indexed representation coverage",
+    )
+    multimodal_audit.add_argument("--knowledge-base-id", type=UUID, required=True)
+    multimodal_audit.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    multimodal_build = multimodal_actions.add_parser(
+        "build",
+        help="build or safely replace representations from existing canonical artifacts",
+    )
+    multimodal_build.add_argument("--knowledge-base-id", type=UUID, required=True)
+    multimodal_build.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    multimodal_build.add_argument(
+        "--canonical-path",
+        type=Path,
+        help="index one canonical JSON artifact instead of the canonical root",
+    )
+    multimodal_build.add_argument("--limit", type=_positive_int)
+    multimodal_search = multimodal_actions.add_parser(
+        "search",
+        help="run a text query over multimodal representations",
+    )
+    multimodal_search.add_argument("query")
+    multimodal_search.add_argument("--knowledge-base-id", type=UUID, required=True)
+    multimodal_search.add_argument("--limit", type=_positive_int, default=10)
+    multimodal_search.add_argument(
+        "--modality",
+        choices=("all", "text", "image", "table", "formula"),
+    )
 
     neo4j = subparsers.add_parser(
         "neo4j",
@@ -1637,6 +1696,84 @@ def _run_qdrant(args: argparse.Namespace) -> int:
     return 1
 
 
+def _run_multimodal_index(args: argparse.Namespace) -> int:
+    """Run the independent A4.2 representation index workflow."""
+
+    store: QdrantRepresentationStore | None = None
+    try:
+        settings = get_settings()
+        store = QdrantRepresentationStore(settings)
+        if args.multimodal_index_action == "audit":
+            report = audit_representation_index(
+                args.canonical_root,
+                knowledge_base_id=args.knowledge_base_id,
+                settings=settings,
+                store=store,
+            )
+            print(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return (
+                0
+                if report.lineage_failure_count == 0
+                and report.missing_count == 0
+                and report.stale_count == 0
+                else 1
+            )
+
+        if args.multimodal_index_action == "build":
+            embedder = QwenEmbeddingModel(settings)
+            if args.canonical_path is not None:
+                result = index_representation_document(
+                    args.canonical_path,
+                    knowledge_base_id=args.knowledge_base_id,
+                    settings=settings,
+                    store=store,
+                    embedder=embedder,
+                )
+                output: object = {"documents": 1, "results": [asdict(result)]}
+            else:
+                results = index_representation_corpus(
+                    args.canonical_root,
+                    knowledge_base_id=args.knowledge_base_id,
+                    settings=settings,
+                    limit=args.limit,
+                    store=store,
+                    embedder=embedder,
+                )
+                output = {
+                    "documents": len(results),
+                    "results": [asdict(result) for result in results],
+                }
+            print(json.dumps(output, ensure_ascii=False, indent=2, default=str))
+            return 0
+
+        if args.multimodal_index_action == "search":
+            result = MultimodalRepresentationRetrievalService(
+                store,
+                QwenEmbeddingModel(settings),
+            ).search(
+                args.query,
+                knowledge_base_id=args.knowledge_base_id,
+                top_k=args.limit,
+                modality=args.modality,
+            )
+            print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return 0
+    except (
+        EmbeddingModelError,
+        RepresentationCollectionConfigurationError,
+        RepresentationIndexError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        print("multimodal_index_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        if store is not None:
+            store.close()
+    return 1
+
+
 def _run_neo4j(args: argparse.Namespace) -> int:
     """Run the small local Neo4j developer workflow."""
     store = None
@@ -2099,6 +2236,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_hybrid_evaluation(args)
     if args.command == "qdrant":
         return _run_qdrant(args)
+    if args.command == "multimodal-index":
+        return _run_multimodal_index(args)
     if args.command == "neo4j":
         return _run_neo4j(args)
     if args.command == "graph-extraction-sample":

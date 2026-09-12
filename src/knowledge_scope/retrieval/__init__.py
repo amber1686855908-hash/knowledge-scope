@@ -1,4 +1,4 @@
-"""Persistent dense and hybrid retrieval infrastructure for KnowledgeScope."""
+"""Persistent dense, hybrid, and multimodal retrieval infrastructure."""
 
 from .hybrid import (
     HYBRID_SCHEMA_VERSION,
@@ -9,6 +9,30 @@ from .hybrid import (
     HybridRetrievalResult,
     HybridRetrievalService,
 )
+from .representation_index import (
+    IndexedRepresentationPayload,
+    MultimodalRepresentationRetrievalService,
+    QdrantRepresentationStore,
+    RepresentationCollectionConfigurationError,
+    RepresentationCoverageAudit,
+    RepresentationIndexError,
+    RepresentationIndexReadiness,
+    RepresentationIndexResult,
+    RepresentationRetrievalResult,
+    RepresentationVectorPoint,
+    RepresentationVisibilitySnapshot,
+    RetrievedEvidence,
+    RetrievedRepresentation,
+    audit_representation_index,
+    build_indexable_evidence,
+    build_representation_points,
+    load_canonical_document,
+    point_id_for_representation,
+    representation_collection_fingerprint,
+    validate_representation_collection_role,
+)
+from .representation_index import index_canonical_corpus as index_representation_corpus
+from .representation_index import index_canonical_document as index_representation_document
 
 __all__ = [
     "HYBRID_SCHEMA_VERSION",
@@ -18,4 +42,26 @@ __all__ = [
     "HybridRetrievalError",
     "HybridRetrievalResult",
     "HybridRetrievalService",
+    "IndexedRepresentationPayload",
+    "MultimodalRepresentationRetrievalService",
+    "QdrantRepresentationStore",
+    "RepresentationCollectionConfigurationError",
+    "RepresentationCoverageAudit",
+    "RepresentationIndexError",
+    "RepresentationIndexReadiness",
+    "RepresentationIndexResult",
+    "RepresentationRetrievalResult",
+    "RepresentationVectorPoint",
+    "RepresentationVisibilitySnapshot",
+    "RetrievedEvidence",
+    "RetrievedRepresentation",
+    "audit_representation_index",
+    "build_indexable_evidence",
+    "build_representation_points",
+    "index_representation_corpus",
+    "index_representation_document",
+    "load_canonical_document",
+    "point_id_for_representation",
+    "representation_collection_fingerprint",
+    "validate_representation_collection_role",
 ]

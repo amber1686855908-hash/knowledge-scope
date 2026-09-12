@@ -61,6 +61,10 @@ data/benchmarks/a3-7/
 data/evidence/
 data/evaluation/a4-1/
 
+# Local A4.2 representation-index audit, embeddings, and smoke outputs
+data/evaluation/a4-2/
+data/benchmarks/a4-2/
+
 # IDE settings
 .idea/
 .vscode/

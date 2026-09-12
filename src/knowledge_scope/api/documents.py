@@ -52,6 +52,10 @@ from knowledge_scope.evidence.lifecycle import (
 from knowledge_scope.graph.neo4j import GraphStoreError
 from knowledge_scope.parsing.service import PARSING_DIRECTORY_NAME
 from knowledge_scope.retrieval.qdrant import VectorStoreError
+from knowledge_scope.retrieval.representation_index import (
+    RepresentationIndexError,
+    RepresentationVisibilitySnapshot,
+)
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import get_session
 
@@ -120,6 +124,73 @@ async def _delete_document_graph(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="文档已删除, 但知识图谱清理失败",
         ) from None
+
+
+async def _delete_document_representations(
+    request: Request,
+    knowledge_base_id: UUID,
+    document_id: UUID,
+) -> None:
+    """Remove A4.2 points outside the event loop when the index is configured."""
+    store = getattr(request.app.state, "representation_store", None)
+    if store is None:
+        return
+    try:
+        await asyncio.to_thread(
+            store.delete_document,
+            document_id,
+            knowledge_base_id=knowledge_base_id,
+        )
+    except RepresentationIndexError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="文档已删除, 但多模态表示清理失败",
+        ) from None
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="文档已删除, 但多模态表示清理失败",
+        ) from error
+
+
+async def _quarantine_document_representations(
+    request: Request,
+    knowledge_base_id: UUID,
+    document_id: UUID,
+) -> RepresentationVisibilitySnapshot | None:
+    """Hide representation points before committing authoritative deletion."""
+    store = getattr(request.app.state, "representation_store", None)
+    if store is None:
+        return None
+    try:
+        return await asyncio.to_thread(
+            store.quarantine_document,
+            document_id,
+            knowledge_base_id=knowledge_base_id,
+        )
+    except RepresentationIndexError:
+        raise
+    except Exception as error:
+        raise RepresentationIndexError("多模态表示在权威删除前无法隔离") from error
+
+
+async def _restore_document_representations(
+    request: Request,
+    snapshot: RepresentationVisibilitySnapshot | None,
+) -> bool:
+    """Restore a pre-commit representation quarantine and report failures."""
+    if snapshot is None:
+        return False
+    store = getattr(request.app.state, "representation_store", None)
+    if store is None:
+        return True
+    try:
+        await asyncio.to_thread(store.restore_document_visibility, snapshot)
+    except RepresentationIndexError:
+        return True
+    except Exception:
+        return True
+    return False
 
 
 @router.post("", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -278,6 +349,7 @@ async def delete_document(
     trashed_parsing: TrashedResource | None = None
     trashed_chunking: TrashedResource | None = None
     trashed_evidence: TrashedResource | None = None
+    representation_visibility: RepresentationVisibilitySnapshot | None = None
     try:
         if document.storage_kind == DOCUMENT_STORAGE_KIND_MANAGED:
             if document.storage_key is None:
@@ -302,7 +374,12 @@ async def delete_document(
             trashed_chunking = move_to_trash(chunking_path, settings.data_dir)
 
         trashed_evidence = move_evidence_artifact_to_trash(settings.data_dir, document.id)
-    except (OSError, StorageError, EvidenceArtifactError):
+        representation_visibility = await _quarantine_document_representations(
+            request,
+            knowledge_base_id,
+            document.id,
+        )
+    except (OSError, StorageError, EvidenceArtifactError, RepresentationIndexError):
         restoration_failed = _restore_deleted_resources(
             (trashed_source, trashed_parsing, trashed_chunking, trashed_evidence)
         )
@@ -318,12 +395,17 @@ async def delete_document(
         await session.commit()
     except SQLAlchemyError:
         await session.rollback()
-        if _restore_deleted_resources(
+        resources_restore_failed = _restore_deleted_resources(
             (trashed_source, trashed_parsing, trashed_chunking, trashed_evidence)
-        ):
+        )
+        representations_restore_failed = await _restore_document_representations(
+            request,
+            representation_visibility,
+        )
+        if resources_restore_failed or representations_restore_failed:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="文档删除失败, 且文件恢复失败",
+                detail="文档删除失败, 且文件或索引恢复失败",
             ) from None
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -331,6 +413,7 @@ async def delete_document(
         ) from None
 
     await _delete_document_graph(request, knowledge_base_id, document.id)
+    await _delete_document_representations(request, knowledge_base_id, document.id)
 
     cleanup_failed = False
     for resource in (trashed_evidence, trashed_chunking, trashed_parsing, trashed_source):
