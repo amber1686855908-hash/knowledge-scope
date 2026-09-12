@@ -10,6 +10,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -45,6 +46,12 @@ from .mineru_runner import (
     run_mineru,
 )
 from .models import CANONICAL_SCHEMA_VERSION
+
+if TYPE_CHECKING:
+    from knowledge_scope.retrieval.representation_index import (
+        QdrantRepresentationStore,
+        RepresentationEmbeddingEncoder,
+    )
 
 PARSING_DIRECTORY_NAME = "parsing"
 CHUNKING_DIRECTORY_NAME = "chunking"
@@ -180,6 +187,142 @@ def _discard_reparse_derived_artifacts(
             continue
 
 
+def _commit_representation_generation(
+    *,
+    staging_dir: Path,
+    final_dir: Path,
+    document_id: UUID,
+    adapted: AdaptedCanonicalDocument,
+    settings: Settings,
+    knowledge_base_id: UUID,
+    representation_store: QdrantRepresentationStore,
+    representation_embedder: RepresentationEmbeddingEncoder,
+) -> None:
+    """Commit a parsed generation with A4.2 compensation across all artifacts.
+
+    Qdrant cannot participate in a filesystem transaction.  The old canonical,
+    derived artifacts, and active points therefore remain the recovery target
+    until the new representation replacement succeeds.  Any later failure
+    compensates every state that was changed; unresolved compensation fails
+    closed instead of claiming an atomic distributed commit.
+    """
+
+    from knowledge_scope.evidence.lifecycle import (
+        EvidenceArtifactError,
+        evidence_artifact_path,
+        load_evidence_artifact,
+        remove_evidence_artifact,
+        write_evidence_artifact,
+    )
+    from knowledge_scope.evidence.service import (
+        EvidenceValidationError,
+        validate_evidence_document,
+    )
+    from knowledge_scope.retrieval.representation_index import (
+        RepresentationIndexError,
+        build_indexable_evidence,
+        build_representation_points,
+        load_canonical_document,
+    )
+
+    try:
+        previous_points = representation_store.snapshot_document(
+            document_id,
+            knowledge_base_id=knowledge_base_id,
+        )
+        previous_path = evidence_artifact_path(settings.data_dir, document_id)
+        previous_artifact = None
+        if previous_path.exists() or previous_path.is_symlink():
+            previous_artifact = load_evidence_artifact(settings.data_dir, document_id)
+            previous_canonical_path = final_dir / "canonical.json"
+            if not previous_canonical_path.is_file():
+                raise DocumentParseError(
+                    "existing representation evidence has no current canonical artifact"
+                )
+            previous_canonical = load_canonical_document(previous_canonical_path)
+            validate_evidence_document(
+                previous_canonical,
+                previous_artifact,
+                knowledge_base_id,
+            )
+        elif previous_points:
+            raise DocumentParseError(
+                "existing representation points have no matching evidence artifact"
+            )
+    except (EvidenceArtifactError, EvidenceValidationError, RepresentationIndexError) as error:
+        raise DocumentParseError(
+            "the previous representation generation is missing or inconsistent"
+        ) from error
+
+    try:
+        artifact = build_indexable_evidence(adapted.document, knowledge_base_id)
+        points = build_representation_points(
+            artifact,
+            settings=settings,
+            embedder=representation_embedder,
+        )
+    except RepresentationIndexError as error:
+        raise DocumentParseError(str(error)) from error
+
+    previous_dir: Path | None = None
+    trashed_chunking: TrashedResource | None = None
+    qdrant_replaced = False
+    evidence_write_attempted = False
+    promoted = False
+    try:
+        representation_store.replace_document(document_id, knowledge_base_id, points)
+        qdrant_replaced = True
+        evidence_write_attempted = True
+        write_evidence_artifact(settings.data_dir, artifact)
+        previous_dir = _promote_staging(staging_dir, final_dir)
+        promoted = True
+        trashed_chunking = _invalidate_chunking_artifacts(document_id, settings)
+    except Exception as error:
+        rollback_errors: list[BaseException] = []
+        if qdrant_replaced:
+            try:
+                representation_store.replace_document(
+                    document_id,
+                    knowledge_base_id,
+                    previous_points,
+                )
+            except Exception as restore_error:
+                rollback_errors.append(restore_error)
+        if evidence_write_attempted:
+            try:
+                if previous_artifact is None:
+                    remove_evidence_artifact(settings.data_dir, document_id)
+                else:
+                    write_evidence_artifact(settings.data_dir, previous_artifact)
+            except Exception as restore_error:
+                rollback_errors.append(restore_error)
+        if promoted:
+            try:
+                _restore_promoted_artifacts(final_dir, previous_dir)
+            except DocumentParseError as restore_error:
+                rollback_errors.append(restore_error)
+        try:
+            _restore_reparse_derived_artifacts((trashed_chunking,))
+        except DocumentParseError as restore_error:
+            rollback_errors.append(restore_error)
+        if rollback_errors:
+            raise DocumentParseError(
+                "representation generation failed and previous generation rollback also failed"
+            ) from rollback_errors[0]
+        if isinstance(error, DocumentParseError):
+            raise
+        if isinstance(
+            error,
+            (EvidenceArtifactError, EvidenceValidationError, RepresentationIndexError),
+        ):
+            raise DocumentParseError(str(error)) from error
+        raise DocumentParseError("representation generation could not be committed") from error
+    else:
+        _discard_reparse_derived_artifacts((trashed_chunking,))
+        if previous_dir is not None:
+            shutil.rmtree(previous_dir, ignore_errors=True)
+
+
 def _artifact_root(settings: Settings) -> Path:
     root = (Path(settings.data_dir) / PARSING_DIRECTORY_NAME).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -234,8 +377,23 @@ def parse_document_file(
     source_path: Path,
     expected_sha256: str,
     settings: Settings,
+    *,
+    representation_store: QdrantRepresentationStore | None = None,
+    representation_embedder: RepresentationEmbeddingEncoder | None = None,
+    representation_knowledge_base_id: UUID | None = None,
 ) -> ParseResult:
     """Parse one verified application-owned PDF and atomically persist its artifacts."""
+    representation_args = (
+        representation_store,
+        representation_embedder,
+        representation_knowledge_base_id,
+    )
+    if any(argument is not None for argument in representation_args) and not all(
+        argument is not None for argument in representation_args
+    ):
+        raise DocumentParseError(
+            "representation generation requires a store, embedder, and knowledge base"
+        )
     source = Path(source_path)
     if not source.is_file():
         raise DocumentParseError("the stored source PDF does not exist")
@@ -245,7 +403,6 @@ def parse_document_file(
         raise DocumentParseError("the stored source PDF could not be read") from error
     if source_sha256 != expected_sha256:
         raise DocumentParseError("the stored source PDF SHA-256 does not match its metadata")
-
     try:
         root = _artifact_root(settings)
         final_dir = root / str(document_id)
@@ -290,28 +447,43 @@ def parse_document_file(
             )
             + "\n",
         )
-        previous_dir = _promote_staging(staging_dir, final_dir)
-        trashed_chunking: TrashedResource | None = None
-        trashed_evidence: TrashedResource | None = None
-        try:
-            trashed_chunking = _invalidate_chunking_artifacts(document_id, settings)
-            trashed_evidence = _invalidate_evidence_artifacts(document_id, settings)
-        except DocumentParseError as error:
-            rollback_error: DocumentParseError | None = None
+        if representation_store is None:
+            previous_dir = _promote_staging(staging_dir, final_dir)
+            trashed_chunking: TrashedResource | None = None
+            trashed_evidence: TrashedResource | None = None
             try:
-                _restore_promoted_artifacts(final_dir, previous_dir)
-            except DocumentParseError as restore_error:
-                rollback_error = restore_error
-            try:
-                _restore_reparse_derived_artifacts((trashed_chunking, trashed_evidence))
-            except DocumentParseError as restore_error:
-                rollback_error = rollback_error or restore_error
-            if rollback_error is not None:
-                raise rollback_error from error
-            raise
-        _discard_reparse_derived_artifacts((trashed_evidence, trashed_chunking))
-        if previous_dir is not None:
-            shutil.rmtree(previous_dir, ignore_errors=True)
+                trashed_chunking = _invalidate_chunking_artifacts(document_id, settings)
+                trashed_evidence = _invalidate_evidence_artifacts(document_id, settings)
+            except DocumentParseError as error:
+                rollback_error: DocumentParseError | None = None
+                try:
+                    _restore_promoted_artifacts(final_dir, previous_dir)
+                except DocumentParseError as restore_error:
+                    rollback_error = restore_error
+                try:
+                    _restore_reparse_derived_artifacts((trashed_chunking, trashed_evidence))
+                except DocumentParseError as restore_error:
+                    rollback_error = rollback_error or restore_error
+                if rollback_error is not None:
+                    raise rollback_error from error
+                raise
+            _discard_reparse_derived_artifacts((trashed_evidence, trashed_chunking))
+            if previous_dir is not None:
+                shutil.rmtree(previous_dir, ignore_errors=True)
+        else:
+            # All three optional arguments were checked together above.
+            assert representation_embedder is not None
+            assert representation_knowledge_base_id is not None
+            _commit_representation_generation(
+                staging_dir=staging_dir,
+                final_dir=final_dir,
+                document_id=document_id,
+                adapted=adapted,
+                settings=settings,
+                knowledge_base_id=representation_knowledge_base_id,
+                representation_store=representation_store,
+                representation_embedder=representation_embedder,
+            )
     except DocumentParseError:
         raise
     except (MineruAdapterError, MineruRunnerError) as error:
@@ -334,7 +506,14 @@ def parse_document_file(
     )
 
 
-async def parse_document_by_id(document_id: UUID, settings: Settings) -> ParseResult:
+async def parse_document_by_id(
+    document_id: UUID,
+    settings: Settings,
+    *,
+    representation_store: QdrantRepresentationStore | None = None,
+    representation_embedder: RepresentationEmbeddingEncoder | None = None,
+    representation_knowledge_base_id: UUID | None = None,
+) -> ParseResult:
     """Resolve an uploaded document from PostgreSQL before parsing it off-request."""
     engine = create_database_engine(settings)
     try:
@@ -361,7 +540,15 @@ async def parse_document_by_id(document_id: UUID, settings: Settings) -> ParseRe
         source_path = filesystem_path_for_storage_key(settings.data_dir, storage_key)
     except (OSError, StorageError, ValueError) as error:
         raise DocumentParseError("document storage reference is invalid") from error
-    return parse_document_file(document_id, source_path, expected_sha256, settings)
+    return parse_document_file(
+        document_id,
+        source_path,
+        expected_sha256,
+        settings,
+        representation_store=representation_store,
+        representation_embedder=representation_embedder,
+        representation_knowledge_base_id=representation_knowledge_base_id,
+    )
 
 
 __all__ = [

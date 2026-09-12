@@ -4,11 +4,13 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from qdrant_client import QdrantClient
 
 from knowledge_scope.evidence import evidence_artifact_path, rebuild_evidence_artifact
-from knowledge_scope.parsing.mineru_adapter import AdapterStats
+from knowledge_scope.evidence.lifecycle import load_evidence_artifact
+from knowledge_scope.parsing.mineru_adapter import AdaptedCanonicalDocument, AdapterStats
 from knowledge_scope.parsing.mineru_runner import MineruRunnerError, MineruRunResult
-from knowledge_scope.parsing.models import CanonicalDocument
+from knowledge_scope.parsing.models import CanonicalDocument, Page, TextBlock, TitleBlock
 from knowledge_scope.parsing.service import (
     MAX_MANIFEST_WARNING_COUNT,
     MAX_MANIFEST_WARNING_LENGTH,
@@ -16,9 +18,111 @@ from knowledge_scope.parsing.service import (
     _manifest,
     parse_document_file,
 )
+from knowledge_scope.retrieval.embedding import embedding_config_fingerprint
+from knowledge_scope.retrieval.representation_index import (
+    QDRANT_VECTOR_DIMENSION,
+    QWEN_EMBEDDING_MODEL_ID,
+    MultimodalRepresentationRetrievalService,
+    QdrantRepresentationStore,
+    RepresentationIndexError,
+    index_canonical_document,
+)
 from knowledge_scope.shared.config import Settings
 
 DOCUMENT_ID = UUID("11111111-1111-1111-1111-111111111111")
+KNOWLEDGE_BASE_ID = UUID("22222222-2222-2222-2222-222222222222")
+
+
+class _RepresentationEncoder:
+    model_id = QWEN_EMBEDDING_MODEL_ID
+
+    def __init__(self, *, fail: bool = False) -> None:
+        settings = Settings(_env_file=None)
+        self.model_revision = settings.embedding_model_revision
+        self.config_fingerprint = embedding_config_fingerprint(settings)
+        self.fail = fail
+
+    def encode_documents(self, texts: list[str]) -> list[list[float]]:
+        if self.fail:
+            raise RuntimeError("injected embedding failure")
+        return [self._vector() for _ in texts]
+
+    def encode_query(self, _query: str) -> list[float]:
+        return self._vector()
+
+    @staticmethod
+    def _vector() -> list[float]:
+        return [1.0, *([0.0] * (QDRANT_VECTOR_DIMENSION - 1))]
+
+
+def _text_document(text: str) -> CanonicalDocument:
+    return CanonicalDocument(
+        document_id=DOCUMENT_ID,
+        pages=[
+            Page(
+                page_number=1,
+                blocks=[
+                    TitleBlock(block_id="title-1", reading_order=0, text="章节"),
+                    TextBlock(block_id="text-1", reading_order=1, text=text),
+                ],
+            )
+        ],
+    )
+
+
+def _adapted(document: CanonicalDocument) -> AdaptedCanonicalDocument:
+    return AdaptedCanonicalDocument(
+        document=document,
+        stats=AdapterStats(
+            pages=len(document.pages),
+            input_items=sum(len(page.blocks) for page in document.pages),
+            canonical_blocks=sum(len(page.blocks) for page in document.pages),
+            title_blocks=1,
+            text_blocks=1,
+            tables=0,
+            formulas=0,
+            images=0,
+            skipped_auxiliary=0,
+            unsupported_items=0,
+        ),
+    )
+
+
+def _prepare_indexed_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[
+    Path,
+    Settings,
+    dict[str, CanonicalDocument],
+    QdrantRepresentationStore,
+    _RepresentationEncoder,
+]:
+    source_path = tmp_path / "source.pdf"
+    source_path.write_bytes(b"%PDF-real-source")
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data")
+    documents = {"current": _text_document("旧版本内容")}
+    monkeypatch.setattr("knowledge_scope.parsing.service.run_mineru", _fake_mineru_run)
+    monkeypatch.setattr(
+        "knowledge_scope.parsing.service.adapt_content_list",
+        lambda *_args, **_kwargs: _adapted(documents["current"]),
+    )
+    parse_document_file(DOCUMENT_ID, source_path, _sha256(source_path), settings)
+
+    store = QdrantRepresentationStore(settings, client=QdrantClient(":memory:"))
+    encoder = _RepresentationEncoder()
+    canonical_path = settings.data_dir / "parsing" / str(DOCUMENT_ID) / "canonical.json"
+    index_canonical_document(
+        canonical_path,
+        knowledge_base_id=KNOWLEDGE_BASE_ID,
+        settings=settings,
+        store=store,
+        embedder=encoder,
+    )
+    chunking_path = settings.data_dir / "chunking" / str(DOCUMENT_ID) / "chunks.json"
+    chunking_path.parent.mkdir(parents=True)
+    chunking_path.write_bytes(b"old chunks")
+    return source_path, settings, documents, store, encoder
 
 
 def _sha256(path: Path) -> str:
@@ -309,3 +413,234 @@ def test_parse_document_file_rejects_changed_source_before_running_mineru(
         parse_document_file(DOCUMENT_ID, source_path, "0" * 64, settings)
 
     assert called is False
+
+
+def _capture_indexed_generation(
+    settings: Settings,
+    store: QdrantRepresentationStore,
+) -> tuple[bytes, bytes, tuple[object, ...], bytes]:
+    canonical_path = settings.data_dir / "parsing" / str(DOCUMENT_ID) / "canonical.json"
+    evidence_path = evidence_artifact_path(settings.data_dir, DOCUMENT_ID)
+    chunks_path = settings.data_dir / "chunking" / str(DOCUMENT_ID) / "chunks.json"
+    return (
+        canonical_path.read_bytes(),
+        evidence_path.read_bytes(),
+        store.list_payloads(knowledge_base_id=KNOWLEDGE_BASE_ID),
+        chunks_path.read_bytes(),
+    )
+
+
+def _assert_indexed_generation(
+    settings: Settings,
+    store: QdrantRepresentationStore,
+    expected: tuple[bytes, bytes, tuple[object, ...], bytes],
+    encoder: _RepresentationEncoder,
+) -> None:
+    canonical_bytes, evidence_bytes, payloads, chunks_bytes = expected
+    canonical_path = settings.data_dir / "parsing" / str(DOCUMENT_ID) / "canonical.json"
+    evidence_path = evidence_artifact_path(settings.data_dir, DOCUMENT_ID)
+    chunks_path = settings.data_dir / "chunking" / str(DOCUMENT_ID) / "chunks.json"
+    assert canonical_path.read_bytes() == canonical_bytes
+    assert evidence_path.read_bytes() == evidence_bytes
+    assert store.list_payloads(knowledge_base_id=KNOWLEDGE_BASE_ID) == payloads
+    assert chunks_path.read_bytes() == chunks_bytes
+    result = MultimodalRepresentationRetrievalService(store, encoder).search(
+        "旧版本内容",
+        knowledge_base_id=KNOWLEDGE_BASE_ID,
+        top_k=5,
+    )
+    assert result.items
+
+
+def test_coordinated_reparse_commits_one_consistent_representation_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path, settings, documents, store, encoder = _prepare_indexed_generation(
+        monkeypatch,
+        tmp_path,
+    )
+    documents["current"] = _text_document("新版本内容")
+
+    parse_document_file(
+        DOCUMENT_ID,
+        source_path,
+        _sha256(source_path),
+        settings,
+        representation_store=store,
+        representation_embedder=encoder,
+        representation_knowledge_base_id=KNOWLEDGE_BASE_ID,
+    )
+
+    canonical = CanonicalDocument.model_validate_json(
+        (settings.data_dir / "parsing" / str(DOCUMENT_ID) / "canonical.json").read_bytes()
+    )
+    assert canonical.pages[0].blocks[1].text == "新版本内容"
+    assert load_evidence_artifact(settings.data_dir, DOCUMENT_ID).canonical_document_fingerprint
+    assert store.list_payloads(knowledge_base_id=KNOWLEDGE_BASE_ID)
+    assert not (settings.data_dir / "chunking" / str(DOCUMENT_ID)).exists()
+    result = MultimodalRepresentationRetrievalService(store, encoder).search(
+        "新版本内容",
+        knowledge_base_id=KNOWLEDGE_BASE_ID,
+        top_k=5,
+    )
+    assert result.items
+    store.close()
+
+
+def test_coordinated_reparse_embedding_failure_keeps_last_known_good_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path, settings, documents, store, encoder = _prepare_indexed_generation(
+        monkeypatch,
+        tmp_path,
+    )
+    expected = _capture_indexed_generation(settings, store)
+    documents["current"] = _text_document("新版本内容")
+
+    with pytest.raises(DocumentParseError, match="embedded"):
+        parse_document_file(
+            DOCUMENT_ID,
+            source_path,
+            _sha256(source_path),
+            settings,
+            representation_store=store,
+            representation_embedder=_RepresentationEncoder(fail=True),
+            representation_knowledge_base_id=KNOWLEDGE_BASE_ID,
+        )
+
+    _assert_indexed_generation(settings, store, expected, encoder)
+    store.close()
+
+
+def test_coordinated_reparse_qdrant_upsert_failure_keeps_last_known_good_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path, settings, documents, store, encoder = _prepare_indexed_generation(
+        monkeypatch,
+        tmp_path,
+    )
+    expected = _capture_indexed_generation(settings, store)
+    documents["current"] = _text_document("新版本内容")
+
+    def fail_upsert(*_: object, **__: object) -> None:
+        raise RuntimeError("injected Qdrant upsert failure")
+
+    monkeypatch.setattr(store, "_upsert", fail_upsert)
+    with pytest.raises(DocumentParseError, match="replacement failed"):
+        parse_document_file(
+            DOCUMENT_ID,
+            source_path,
+            _sha256(source_path),
+            settings,
+            representation_store=store,
+            representation_embedder=encoder,
+            representation_knowledge_base_id=KNOWLEDGE_BASE_ID,
+        )
+
+    _assert_indexed_generation(settings, store, expected, encoder)
+    store.close()
+
+
+def test_coordinated_reparse_validation_failure_keeps_last_known_good_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path, settings, documents, store, encoder = _prepare_indexed_generation(
+        monkeypatch,
+        tmp_path,
+    )
+    expected = _capture_indexed_generation(settings, store)
+    documents["current"] = _text_document("新版本内容")
+
+    def fail_materialization(*_: object, **__: object) -> object:
+        raise RepresentationIndexError("injected representation validation failure")
+
+    monkeypatch.setattr(
+        "knowledge_scope.retrieval.representation_index.build_indexable_evidence",
+        fail_materialization,
+    )
+    with pytest.raises(DocumentParseError, match="validation failure"):
+        parse_document_file(
+            DOCUMENT_ID,
+            source_path,
+            _sha256(source_path),
+            settings,
+            representation_store=store,
+            representation_embedder=encoder,
+            representation_knowledge_base_id=KNOWLEDGE_BASE_ID,
+        )
+
+    _assert_indexed_generation(settings, store, expected, encoder)
+    store.close()
+
+
+def test_coordinated_reparse_stale_cleanup_failure_rolls_back_the_new_index(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path, settings, documents, store, encoder = _prepare_indexed_generation(
+        monkeypatch,
+        tmp_path,
+    )
+    expected = _capture_indexed_generation(settings, store)
+    documents["current"] = _text_document("新版本内容")
+    original_delete = store._delete_ids
+    call_count = 0
+
+    def fail_first_delete(point_ids: object) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("injected stale cleanup failure")
+        original_delete(point_ids)
+
+    monkeypatch.setattr(store, "_delete_ids", fail_first_delete)
+    with pytest.raises(DocumentParseError, match="replacement failed"):
+        parse_document_file(
+            DOCUMENT_ID,
+            source_path,
+            _sha256(source_path),
+            settings,
+            representation_store=store,
+            representation_embedder=encoder,
+            representation_knowledge_base_id=KNOWLEDGE_BASE_ID,
+        )
+
+    _assert_indexed_generation(settings, store, expected, encoder)
+    store.close()
+
+
+def test_coordinated_reparse_failure_after_canonical_switch_restores_everything(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path, settings, documents, store, encoder = _prepare_indexed_generation(
+        monkeypatch,
+        tmp_path,
+    )
+    expected = _capture_indexed_generation(settings, store)
+    documents["current"] = _text_document("新版本内容")
+
+    def fail_chunk_invalidation(*_: object, **__: object) -> None:
+        raise DocumentParseError("injected post-switch cleanup failure")
+
+    monkeypatch.setattr(
+        "knowledge_scope.parsing.service._invalidate_chunking_artifacts",
+        fail_chunk_invalidation,
+    )
+    with pytest.raises(DocumentParseError, match="post-switch cleanup failure"):
+        parse_document_file(
+            DOCUMENT_ID,
+            source_path,
+            _sha256(source_path),
+            settings,
+            representation_store=store,
+            representation_embedder=encoder,
+            representation_knowledge_base_id=KNOWLEDGE_BASE_ID,
+        )
+
+    _assert_indexed_generation(settings, store, expected, encoder)
+    store.close()

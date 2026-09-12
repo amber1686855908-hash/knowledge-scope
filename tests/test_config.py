@@ -22,6 +22,7 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.mineru_timeout_seconds == 1800
     assert settings.qdrant_url == "http://127.0.0.1:6333"
     assert settings.qdrant_collection_name == "knowledgescope_chunks_v1"
+    assert settings.qdrant_representation_collection_name == "knowledgescope_representations_v1"
     assert settings.neo4j_uri == "bolt://127.0.0.1:7687"
     assert settings.neo4j_username == "neo4j"
     assert settings.neo4j_password is None
@@ -61,6 +62,10 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_MINERU_TIMEOUT_SECONDS", "600")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_QDRANT_URL", "http://localhost:6334")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_QDRANT_UPSERT_BATCH_SIZE", "64")
+    monkeypatch.setenv(
+        "KNOWLEDGE_SCOPE_QDRANT_REPRESENTATION_COLLECTION_NAME",
+        "representations_test_v1",
+    )
     monkeypatch.setenv("KNOWLEDGE_SCOPE_NEO4J_URI", "bolt://localhost:17687")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_NEO4J_USERNAME", "graph-user")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_NEO4J_PASSWORD", "test-graph-secret")
@@ -100,6 +105,7 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.mineru_timeout_seconds == 600
     assert settings.qdrant_url == "http://localhost:6334"
     assert settings.qdrant_upsert_batch_size == 64
+    assert settings.qdrant_representation_collection_name == "representations_test_v1"
     assert settings.neo4j_uri == "bolt://localhost:17687"
     assert settings.neo4j_username == "graph-user"
     assert settings.neo4j_password is not None

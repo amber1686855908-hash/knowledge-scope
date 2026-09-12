@@ -18,6 +18,10 @@ from knowledge_scope.llm.usage import DatabaseUsageRecorder
 from knowledge_scope.rag.service import RAGService
 from knowledge_scope.retrieval.embedding import QwenEmbeddingModel
 from knowledge_scope.retrieval.qdrant import QdrantVectorStore
+from knowledge_scope.retrieval.representation_index import (
+    QdrantRepresentationStore,
+    validate_representation_collection_role,
+)
 from knowledge_scope.retrieval.reranking import RerankingService, create_local_reranker
 from knowledge_scope.retrieval.service import DenseRetrievalService
 from knowledge_scope.shared import build_health_report, get_settings
@@ -40,6 +44,10 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     """Initialize the default RAG graph and dispose owned clients on shutdown."""
     provider = None
     try:
+        if application.state.representation_store is None:
+            application.state.representation_store = QdrantRepresentationStore(
+                application.state.settings
+            )
         if application.state.rag_service is None:
             settings: Settings = application.state.settings
             provider = create_llm_provider(settings)
@@ -68,6 +76,8 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             await provider.aclose()
         await application.state.db_engine.dispose()
         application.state.vector_store.close()
+        if application.state.representation_store is not None:
+            application.state.representation_store.close()
         application.state.graph_store.close()
 
 
@@ -79,9 +89,11 @@ def create_app(
     embedding_model: QwenEmbeddingModel | None = None,
     rag_service: RAGService | None = None,
     graph_store: Neo4jGraphStore | None = None,
+    representation_store: QdrantRepresentationStore | None = None,
 ) -> FastAPI:
     """Create the API application with validated runtime settings."""
     runtime_settings = settings if settings is not None else get_settings()
+    validate_representation_collection_role(runtime_settings)
     engine = (
         database_engine if database_engine is not None else create_database_engine(runtime_settings)
     )
@@ -97,6 +109,7 @@ def create_app(
     application.state.embedding_model = embedding_model or QwenEmbeddingModel(runtime_settings)
     application.state.rag_service = rag_service
     application.state.graph_store = graph_store or Neo4jGraphStore(runtime_settings)
+    application.state.representation_store = representation_store
     application.state.llm_provider = None
     application.add_middleware(
         CORSMiddleware,

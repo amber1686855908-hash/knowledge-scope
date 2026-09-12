@@ -60,6 +60,8 @@ Phase A3.7 提供只读的 Vector-only 与 Vector + Graph 对照评测：复用�
 
 Phase A4.1 已建立 `knowledge_scope.evidence` 的多模态 Evidence 与多表示基础：从现有 `CanonicalDocument` 的 text、image、table、formula blocks 构建带稳定 ID、source fingerprint 和完整 KB/document/page/block/asset lineage 的 `MultimodalEvidence`；同一 source evidence 可以拥有 text、caption、markdown/html、LaTeX 或 opaque asset reference 等多个 representation，并可生成供未来索引解析的 `RepresentationIndexPayload`。重解析会使旧的 `data/evidence/<document_id>/evidence.json` 失效，并在失败时恢复旧的 canonical、chunk 和 evidence 状态；删除文档时会一并清理该 derived artifact，即使是没有 `data/documents/` 的 `external_reference` 文档；当前不增加数据库迁移，不引入 BM25、视觉模型、向量索引、最终融合或 A4 benchmark。详见 [A4.1 多模态 Evidence 与多表示基础](docs/architecture/multimodal-evidence.md)。
 
+Phase A4.2 已建立独立的 `knowledge_scope.retrieval.representation_index`：从 A4.1 的 Evidence 生成 text、image、table、formula 的可搜索文本 representation，并通过 `Qwen/Qwen3-Embedding-0.6B` 写入单独的 `knowledgescope_representations_v1` collection。它与受保护的 `knowledgescope_chunks_v1` 做 collection-role 隔离；保护不依赖可变的 chunk collection 配置，写入/创建/删除边界还会识别已存在的 A2.3 chunk payload 与 point identity。写入边界会校验 schema、payload contract 和包含 model-native pooling 的 embedding fingerprint；结果按 Evidence 去重，同时保留 representation、KB/document/page/block、section 和 asset lineage。正常查询强制 `searchable=true` 并排除 quarantine，文档级 build/rebuild 采用先建立新点、失败补偿恢复旧 Evidence/points 的 document-scoped 语义。使用带 `representation_store` 的解析协调路径时，canonical、旧 chunks、Evidence 与 representation points 作为一个逻辑 generation 共同切换；解析、物化、embedding、Qdrant replacement 或切换前的清理失败都会恢复旧 canonical 和全部旧派生状态，已提交 generation 的旧临时目录清理失败则保留新 generation 并可重试清理，未解决的补偿会 fail closed。删除先隔离表示，权威删除成功后再物理清理，跨 PostgreSQL、文件系统和 Qdrant 不承诺分布式原子事务。图片只在已有 caption 或同一 canonical source 的有限 text/title context 可用时进入文本索引，opaque `asset_ref` 不会被当作文本；本阶段不生成 caption/OCR，不使用视觉 embedding，不修改 A3 图检索、RRF 或 RAG 接口。覆盖审计和查询命令见 [A4.2 Representation Index 与检索说明](docs/architecture/multimodal-representation-index.md)，运行口径见 [A4.2 验证记录](docs/benchmarks/a4-2-multimodal-index.md)。
+
 当前 A1.5/A1.6 的 255 个 benchmark 文档可以通过显式的 corpus registration workflow 登记为一个指定 KnowledgeBase。该流程不从文件名、路径、学科或正文推断归属，不重新运行 MinerU、分块或 embedding，也不复制/移动源语料；登记后的 `Document` 使用 `status=registered` 和 `storage_kind=external_reference`，`storage_key` 保持为空，原有普通上传文档的本地托管语义不变。登记前会校验 255 个唯一文档、canonical artifact、7,524 个 chunk lineage、目标 KB 和所有权冲突，并在一个 PostgreSQL 事务中完成；重复执行是幂等的，冲突会整体拒绝。登记还会生成被忽略的 `data/evaluation/a3-5/a2-1-kb-mapping.jsonl`，将冻结 A2.1 的 108 个 item 映射到同一显式 KB，但不会修改冻结标注；完整的存储与升级说明见 [benchmark corpus registration](docs/architecture/benchmark-corpus-registration.md)。
 
 登记已有 benchmark 语料时，必须显式提供目标 KB UUID：
@@ -184,6 +186,29 @@ uv run knowledgescope qdrant index-corpus --canonical-root data/benchmarks/a1-5/
 ```bash
 uv run knowledgescope qdrant search "说明事理时应重点说明哪些内容?" --limit 5
 ```
+
+A4.2 的 representation index 使用独立 collection，不会修改 A2.3 chunk index。先对现有 canonical artifacts 执行覆盖审计，再按显式 KnowledgeBase UUID 构建或重建：
+
+```bash
+uv run knowledgescope multimodal-index audit \
+  --knowledge-base-id <knowledge-base-uuid> \
+  --canonical-root data/benchmarks/a1-5/canonical
+uv run knowledgescope multimodal-index build \
+  --knowledge-base-id <knowledge-base-uuid> \
+  --canonical-root data/benchmarks/a1-5/canonical \
+  --limit 3
+```
+
+执行多模态 Evidence 文本查询，可选 `text`、`image`、`table` 或 `formula` 过滤：
+
+```bash
+uv run knowledgescope multimodal-index search "温度表中的检查项目是什么?" \
+  --knowledge-base-id <knowledge-base-uuid> \
+  --modality table \
+  --limit 5
+```
+
+该索引只使用现有 canonical 内容和有限结构上下文，不代表视觉检索、BM25、最终融合或统一 multimodal RAG 已实现。
 
 安装本地 reranker 基准所需依赖并运行完整比较：
 
@@ -337,4 +362,4 @@ npm run build
 
 ## 后续方向
 
-后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并在当前 dense retrieval 与 reranker 基础上评估 sparse/hybrid retrieval、GraphRAG、multimodal retrieval、ChatBI 和 NL2SQL；当前版本不包含这些后续能力。
+后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并在当前 dense retrieval、reranker、图检索和 A4.2 文本 representation 基础上评估 sparse/BM25、视觉 embedding、最终多路融合、GraphRAG、ChatBI 和 NL2SQL；当前版本不包含这些后续能力。

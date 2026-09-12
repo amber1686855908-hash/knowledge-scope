@@ -12,6 +12,8 @@ from knowledge_scope.shared.config import Settings
 
 from .qdrant import QDRANT_VECTOR_DIMENSION, QWEN_EMBEDDING_MODEL_ID
 
+EMBEDDING_POOLING_STRATEGY = "SentenceTransformer model-native pooling"
+
 
 class EmbeddingModelError(RuntimeError):
     """Raised when the configured local embedding model cannot run."""
@@ -26,6 +28,7 @@ def embedding_config_fingerprint(settings: Settings) -> str:
         "embedding_max_seq_length": settings.embedding_max_seq_length,
         "query_prompt": "SentenceTransformers prompt_name=query",
         "normalization": "l2",
+        "pooling": EMBEDDING_POOLING_STRATEGY,
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -128,4 +131,9 @@ class QwenEmbeddingModel:
         return self._encode([query], query=True)[0]
 
 
-__all__ = ["EmbeddingModelError", "QwenEmbeddingModel", "embedding_config_fingerprint"]
+__all__ = [
+    "EMBEDDING_POOLING_STRATEGY",
+    "EmbeddingModelError",
+    "QwenEmbeddingModel",
+    "embedding_config_fingerprint",
+]
