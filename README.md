@@ -62,6 +62,8 @@ Phase A4.1 已建立 `knowledge_scope.evidence` 的多模态 Evidence 与多表�
 
 Phase A4.2 已建立独立的 `knowledge_scope.retrieval.representation_index`：从 A4.1 的 Evidence 生成 text、image、table、formula 的可搜索文本 representation，并通过 `Qwen/Qwen3-Embedding-0.6B` 写入单独的 `knowledgescope_representations_v1` collection。它与受保护的 `knowledgescope_chunks_v1` 做 collection-role 隔离；保护不依赖可变的 chunk collection 配置，写入/创建/删除边界还会识别已存在的 A2.3 chunk payload 与 point identity。写入边界会校验 schema、payload contract 和包含 model-native pooling 的 embedding fingerprint；结果按 Evidence 去重，同时保留 representation、KB/document/page/block、section 和 asset lineage。正常查询强制 `searchable=true` 并排除 quarantine，文档级 build/rebuild 采用先建立新点、失败补偿恢复旧 Evidence/points 的 document-scoped 语义。使用带 `representation_store` 的解析协调路径时，canonical、旧 chunks、Evidence 与 representation points 作为一个逻辑 generation 共同切换；解析、物化、embedding、Qdrant replacement 或切换前的清理失败都会恢复旧 canonical 和全部旧派生状态，已提交 generation 的旧临时目录清理失败则保留新 generation 并可重试清理，未解决的补偿会 fail closed。删除先隔离表示，权威删除成功后再物理清理，跨 PostgreSQL、文件系统和 Qdrant 不承诺分布式原子事务。图片只在已有 caption 或同一 canonical source 的有限 text/title context 可用时进入文本索引，opaque `asset_ref` 不会被当作文本；本阶段不生成 caption/OCR，不使用视觉 embedding，不修改 A3 图检索、RRF 或 RAG 接口。覆盖审计和查询命令见 [A4.2 Representation Index 与检索说明](docs/architecture/multimodal-representation-index.md)，运行口径见 [A4.2 验证记录](docs/benchmarks/a4-2-multimodal-index.md)。
 
+Phase A4.3 已建立独立的 `knowledge_scope.retrieval.sparse` 文本词法检索分支：使用标准库 SQLite 保存带 generation contract 的 BM25 倒排索引，复用 A1.5 canonical artifacts 和 A1.6 默认 `chunk_document()`，不重新运行 MinerU，也不修改 `knowledgescope_chunks_v1`、A4.2 representation collection、Neo4j 或冻结评测数据。`mixed-script-v2` tokenizer 对中文保留 unigram/bigram，并在 Latin/数字与 CJK 之间切分，同时对英文、数字、缩写和公式操作数保留确定性 token；每次查询必须显式提供 `knowledge_base_id`，结果保留 document/page/chunk/source block/section lineage。索引 build/rebuild、audit、query 和文档级删除命令见 [A4.3 Sparse / Lexical Retrieval 说明](docs/architecture/sparse-retrieval.md)，运行口径见 [A4.3 基准记录](docs/benchmarks/a4-3-sparse-retrieval.md)。当前只建立 BM25 baseline 和描述性 Dense-vs-Sparse 诊断，不代表 sparse 已改善检索质量，也不包含融合、视觉 embedding、OCR 或 LLM caption。
+
 当前 A1.5/A1.6 的 255 个 benchmark 文档可以通过显式的 corpus registration workflow 登记为一个指定 KnowledgeBase。该流程不从文件名、路径、学科或正文推断归属，不重新运行 MinerU、分块或 embedding，也不复制/移动源语料；登记后的 `Document` 使用 `status=registered` 和 `storage_kind=external_reference`，`storage_key` 保持为空，原有普通上传文档的本地托管语义不变。登记前会校验 255 个唯一文档、canonical artifact、7,524 个 chunk lineage、目标 KB 和所有权冲突，并在一个 PostgreSQL 事务中完成；重复执行是幂等的，冲突会整体拒绝。登记还会生成被忽略的 `data/evaluation/a3-5/a2-1-kb-mapping.jsonl`，将冻结 A2.1 的 108 个 item 映射到同一显式 KB，但不会修改冻结标注；完整的存储与升级说明见 [benchmark corpus registration](docs/architecture/benchmark-corpus-registration.md)。
 
 登记已有 benchmark 语料时，必须显式提供目标 KB UUID：
@@ -209,6 +211,27 @@ uv run knowledgescope multimodal-index search "温度表中的检查项目是什
 ```
 
 该索引只使用现有 canonical 内容和有限结构上下文，不代表视觉检索、BM25、最终融合或统一 multimodal RAG 已实现。
+
+构建独立的文本 BM25 索引（默认写入被忽略的 `data/evaluation/a4-3/sparse.sqlite3`）：
+
+```bash
+uv run knowledgescope sparse-index build \
+  --knowledge-base-id <knowledge-base-uuid> \
+  --canonical-root data/benchmarks/a1-5/canonical \
+  --corpus-manifest data/benchmarks/a1-5/corpus-manifest.jsonl
+```
+
+审计或查询该索引：
+
+```bash
+uv run knowledgescope sparse-index audit \
+  --knowledge-base-id <knowledge-base-uuid>
+uv run knowledgescope sparse-index query "温度 2024 H2O" \
+  --knowledge-base-id <knowledge-base-uuid> --top-k 5
+```
+
+A4.3 的 SQLite、查询结果和诊断文件属于运行时 derived state；BM25 分数只在
+同一 sparse contract 内用于排序，不与 dense/graph 分数直接相加。
 
 安装本地 reranker 基准所需依赖并运行完整比较：
 
@@ -362,4 +385,4 @@ npm run build
 
 ## 后续方向
 
-后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并在当前 dense retrieval、reranker、图检索和 A4.2 文本 representation 基础上评估 sparse/BM25、视觉 embedding、最终多路融合、GraphRAG、ChatBI 和 NL2SQL；当前版本不包含这些后续能力。
+后续阶段将继续扩展文档 ingestion 和 parsing 覆盖范围，并在当前 dense retrieval、reranker、图检索、A4.2 文本 representation 和 A4.3 BM25 baseline 基础上评估视觉 embedding、最终多路融合、GraphRAG、ChatBI 和 NL2SQL；当前版本不包含这些后续能力。

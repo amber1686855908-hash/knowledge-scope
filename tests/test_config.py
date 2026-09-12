@@ -51,6 +51,9 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.rag_rerank_limit == 5
     assert settings.rag_context_budget_chars == 6_000
     assert settings.rag_max_tokens == 512
+    assert settings.sparse_index_path == Path("data/evaluation/a4-3/sparse.sqlite3")
+    assert settings.sparse_bm25_k1 == 1.2
+    assert settings.sparse_bm25_b == 0.75
 
 
 def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -94,6 +97,9 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_RERANK_LIMIT", "4")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS", "4000")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_MAX_TOKENS", "256")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_INDEX_PATH", "/tmp/sparse.sqlite3")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_BM25_K1", "1.4")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_BM25_B", "0.6")
 
     settings = Settings(_env_file=None)
 
@@ -134,6 +140,9 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.rag_rerank_limit == 4
     assert settings.rag_context_budget_chars == 4000
     assert settings.rag_max_tokens == 256
+    assert settings.sparse_index_path == Path("/tmp/sparse.sqlite3")
+    assert settings.sparse_bm25_k1 == 1.4
+    assert settings.sparse_bm25_b == 0.6
 
 
 def test_extraction_retry_setting_allows_at_most_one_corrective_retry() -> None:
