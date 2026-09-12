@@ -207,6 +207,12 @@ from knowledge_scope.retrieval.reranking import (
     create_local_reranker,
 )
 from knowledge_scope.retrieval.service import DenseRetrievalService, RetrievalError
+from knowledge_scope.retrieval.sparse import (
+    SparseIndexConfig,
+    SparseIndexError,
+    SparseIndexStore,
+    load_canonical_chunk_records,
+)
 from knowledge_scope.shared import build_health_report, get_settings
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
@@ -702,6 +708,82 @@ def build_parser() -> argparse.ArgumentParser:
         "--modality",
         choices=("all", "text", "image", "table", "formula"),
     )
+
+    sparse_index = subparsers.add_parser(
+        "sparse-index",
+        help="build, audit, and query the independent local BM25 chunk index",
+    )
+    sparse_actions = sparse_index.add_subparsers(
+        dest="sparse_index_action",
+        required=True,
+    )
+    sparse_build = sparse_actions.add_parser(
+        "build",
+        help="build a complete sparse generation from existing canonical artifacts",
+    )
+    sparse_build.add_argument("--knowledge-base-id", type=UUID, required=True)
+    sparse_build.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    sparse_build.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/corpus-manifest.jsonl"),
+    )
+    sparse_build.add_argument("--limit", type=_positive_int)
+    sparse_rebuild = sparse_actions.add_parser(
+        "rebuild",
+        help="replace the active sparse generation from existing canonical artifacts",
+    )
+    sparse_rebuild.add_argument("--knowledge-base-id", type=UUID, required=True)
+    sparse_rebuild.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    sparse_rebuild.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/corpus-manifest.jsonl"),
+    )
+    sparse_rebuild.add_argument("--limit", type=_positive_int)
+    sparse_audit = sparse_actions.add_parser(
+        "audit",
+        help="compare the active sparse generation with current canonical chunks",
+    )
+    sparse_audit.add_argument("--knowledge-base-id", type=UUID, required=True)
+    sparse_audit.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    sparse_audit.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/corpus-manifest.jsonl"),
+    )
+    sparse_query = sparse_actions.add_parser(
+        "query",
+        help="run a bounded BM25 query over one Knowledge Base",
+    )
+    sparse_query.add_argument("query")
+    sparse_query.add_argument("--knowledge-base-id", type=UUID, required=True)
+    sparse_query.add_argument("--document-id", type=UUID)
+    sparse_query.add_argument("--top-k", type=_positive_int, default=10)
+    sparse_delete = sparse_actions.add_parser(
+        "delete-document",
+        help="remove one Knowledge Base/document from the sparse index",
+    )
+    sparse_delete.add_argument("document_id", type=UUID)
+    sparse_delete.add_argument("--knowledge-base-id", type=UUID, required=True)
+    for sparse_action in (sparse_build, sparse_rebuild, sparse_audit, sparse_query, sparse_delete):
+        sparse_action.add_argument(
+            "--index-path",
+            type=Path,
+            help="override KNOWLEDGE_SCOPE_SPARSE_INDEX_PATH for this command",
+        )
 
     neo4j = subparsers.add_parser(
         "neo4j",
@@ -1774,6 +1856,72 @@ def _run_multimodal_index(args: argparse.Namespace) -> int:
     return 1
 
 
+def _run_sparse_index(args: argparse.Namespace) -> int:
+    """Run the independent A4.3 local BM25 workflow."""
+
+    store: SparseIndexStore | None = None
+    try:
+        settings = get_settings()
+        store = SparseIndexStore(
+            args.index_path or settings.sparse_index_path,
+            config=SparseIndexConfig(
+                bm25_k1=settings.sparse_bm25_k1,
+                bm25_b=settings.sparse_bm25_b,
+            ),
+        )
+        action = args.sparse_index_action
+        if action in {"build", "rebuild"}:
+            records = load_canonical_chunk_records(
+                args.canonical_root,
+                knowledge_base_id=args.knowledge_base_id,
+                corpus_manifest_path=args.corpus_manifest,
+                limit=args.limit,
+            )
+            result = store.build(records)
+            print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return 0
+        if action == "audit":
+            records = load_canonical_chunk_records(
+                args.canonical_root,
+                knowledge_base_id=args.knowledge_base_id,
+                corpus_manifest_path=args.corpus_manifest,
+            )
+            result = store.audit(records)
+            print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return 0 if result.status == "ready" else 1
+        if action == "query":
+            result = store.search(
+                args.query,
+                knowledge_base_id=args.knowledge_base_id,
+                top_k=args.top_k,
+                document_id=args.document_id,
+            )
+            print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return 0
+        if action == "delete-document":
+            removed = store.delete_document(args.knowledge_base_id, args.document_id)
+            print(
+                json.dumps(
+                    {
+                        "knowledge_base_id": str(args.knowledge_base_id),
+                        "document_id": str(args.document_id),
+                        "removed_chunks": removed,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+    except (SparseIndexError, ValidationError, ValueError, OSError) as error:
+        print("sparse_index_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        if store is not None:
+            store.close()
+    return 1
+
+
 def _run_neo4j(args: argparse.Namespace) -> int:
     """Run the small local Neo4j developer workflow."""
     store = None
@@ -2238,6 +2386,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_qdrant(args)
     if args.command == "multimodal-index":
         return _run_multimodal_index(args)
+    if args.command == "sparse-index":
+        return _run_sparse_index(args)
     if args.command == "neo4j":
         return _run_neo4j(args)
     if args.command == "graph-extraction-sample":

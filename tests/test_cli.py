@@ -214,6 +214,39 @@ def test_multimodal_index_parser_has_explicit_scope_and_filters() -> None:
     assert all_args.modality == "all"
 
 
+def test_sparse_index_parser_has_explicit_scope_and_bounded_query() -> None:
+    build_args = build_parser().parse_args(
+        [
+            "sparse-index",
+            "build",
+            "--knowledge-base-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--limit",
+            "2",
+            "--index-path",
+            "tmp/sparse.sqlite3",
+        ]
+    )
+    query_args = build_parser().parse_args(
+        [
+            "sparse-index",
+            "query",
+            "温度表",
+            "--knowledge-base-id",
+            "11111111-1111-1111-1111-111111111111",
+            "--top-k",
+            "5",
+        ]
+    )
+
+    assert build_args.sparse_index_action == "build"
+    assert build_args.knowledge_base_id == UUID("11111111-1111-1111-1111-111111111111")
+    assert build_args.limit == 2
+    assert build_args.index_path == Path("tmp/sparse.sqlite3")
+    assert query_args.sparse_index_action == "query"
+    assert query_args.top_k == 5
+
+
 def test_corpus_registration_parser_requires_explicit_knowledge_base() -> None:
     args = build_parser().parse_args(
         [

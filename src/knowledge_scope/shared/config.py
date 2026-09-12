@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     hybrid_graph_result_limit: int = Field(default=20, ge=1, le=500)
     hybrid_result_limit: int = Field(default=20, ge=1, le=500)
     hybrid_failure_mode: Literal["strict", "degraded"] = "degraded"
+    sparse_index_path: Path = Path("data/evaluation/a4-3/sparse.sqlite3")
+    sparse_bm25_k1: float = Field(default=1.2, gt=0, le=10)
+    sparse_bm25_b: float = Field(default=0.75, ge=0, le=1)
 
     @model_validator(mode="after")
     def validate_graph_extraction_truncation_policy(self) -> Self:

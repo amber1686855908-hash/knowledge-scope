@@ -65,6 +65,10 @@ data/evaluation/a4-1/
 data/evaluation/a4-2/
 data/benchmarks/a4-2/
 
+# Local A4.3 sparse index, diagnostics, and benchmark outputs
+data/evaluation/a4-3/
+data/benchmarks/a4-3/
+
 # IDE settings
 .idea/
 .vscode/
