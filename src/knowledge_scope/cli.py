@@ -33,7 +33,7 @@ from knowledge_scope.documents.registration import (
     register_corpus,
     write_frozen_eval_kb_mapping,
 )
-from knowledge_scope.evaluation import reranker_benchmark
+from knowledge_scope.evaluation import a4_5_retrieval_evaluation, reranker_benchmark
 from knowledge_scope.evaluation.embedding_benchmark import (
     DEFAULT_CHUNK_INDEX,
     DEFAULT_DATASET,
@@ -625,6 +625,86 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=DEFAULT_HYBRID_EVAL_OUTPUT,
+        help="ignored per-query and aggregate output directory",
+    )
+
+    a45_evaluation = subparsers.add_parser(
+        "retrieval-evaluation",
+        help="run the read-only A4.5 retrieval ablation and multimodal evaluation",
+    )
+    a45_actions = a45_evaluation.add_subparsers(
+        dest="retrieval_evaluation_action",
+        required=True,
+    )
+    a45_build = a45_actions.add_parser(
+        "build-multimodal-dataset",
+        help="freeze a small Evidence-derived multimodal evaluation set",
+    )
+    a45_build.add_argument(
+        "--evidence-dir",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_EVIDENCE_DIR,
+    )
+    a45_build.add_argument(
+        "--canonical-root",
+        type=Path,
+        default=Path("data/benchmarks/a1-5/canonical"),
+    )
+    a45_build.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_CORPUS_MANIFEST,
+    )
+    a45_build.add_argument(
+        "--output",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_MULTIMODAL_DATASET,
+    )
+    a45_build.add_argument(
+        "--manifest",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_MULTIMODAL_MANIFEST,
+    )
+    a45_run = a45_actions.add_parser(
+        "run",
+        help="run the frozen five-system and multimodal evaluation",
+    )
+    a45_run.add_argument("--knowledge-base-id", type=UUID, required=True)
+    a45_run.add_argument(
+        "--split",
+        choices=("dev", "test", "both"),
+        default="both",
+        help="evaluate the frozen dev split, test split, or both",
+    )
+    a45_run.add_argument(
+        "--chunk-index",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_CHUNK_INDEX,
+    )
+    a45_run.add_argument(
+        "--dataset",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_DATASET,
+    )
+    a45_run.add_argument(
+        "--materialized",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_MATERIALIZED,
+    )
+    a45_run.add_argument(
+        "--multimodal-dataset",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_MULTIMODAL_DATASET,
+    )
+    a45_run.add_argument(
+        "--multimodal-manifest",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_MULTIMODAL_MANIFEST,
+    )
+    a45_run.add_argument(
+        "--output",
+        type=Path,
+        default=a4_5_retrieval_evaluation.DEFAULT_OUTPUT,
         help="ignored per-query and aggregate output directory",
     )
 
@@ -1524,6 +1604,49 @@ def _run_hybrid_evaluation(args: argparse.Namespace) -> int:
     print(f"output: {args.output}")
     print(json.dumps(aggregate, ensure_ascii=False, indent=2))
     return 0
+
+
+def _run_a45_retrieval_evaluation(args: argparse.Namespace) -> int:
+    """Build the frozen A4.5 multimodal set or run its read-only evaluation."""
+    try:
+        if args.retrieval_evaluation_action == "build-multimodal-dataset":
+            manifest = a4_5_retrieval_evaluation.build_multimodal_dataset(
+                evidence_dir=args.evidence_dir,
+                canonical_root=args.canonical_root,
+                corpus_manifest=args.corpus_manifest,
+                output_path=args.output,
+                manifest_path=args.manifest,
+            )
+            print("retrieval_evaluation_status: multimodal_dataset_built")
+            print(json.dumps(manifest.model_dump(mode="json"), ensure_ascii=False, indent=2))
+            return 0
+        if args.retrieval_evaluation_action == "run":
+            outcome = a4_5_retrieval_evaluation.run_retrieval_evaluation(
+                knowledge_base_id=args.knowledge_base_id,
+                split=args.split,
+                chunk_index_path=args.chunk_index,
+                dataset_path=args.dataset,
+                materialized_path=args.materialized,
+                multimodal_dataset_path=args.multimodal_dataset,
+                multimodal_manifest_path=args.multimodal_manifest,
+                output_dir=args.output,
+            )
+            print("retrieval_evaluation_status: complete")
+            print(f"output: {args.output}")
+            print(json.dumps(outcome["aggregate"], ensure_ascii=False, indent=2))
+            return 0
+    except (
+        a4_5_retrieval_evaluation.A45EvaluationError,
+        GraphStoreError,
+        ValueError,
+    ) as error:
+        print("retrieval_evaluation_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("retrieval_evaluation_status: interrupted", file=sys.stderr)
+        return 130
+    return 1
 
 
 def _run_rerank_search(args: argparse.Namespace) -> int:
@@ -2521,6 +2644,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_retrieval_system_benchmark(args)
     if args.command == "hybrid-evaluation":
         return _run_hybrid_evaluation(args)
+    if args.command == "retrieval-evaluation":
+        return _run_a45_retrieval_evaluation(args)
     if args.command == "qdrant":
         return _run_qdrant(args)
     if args.command == "multimodal-index":
