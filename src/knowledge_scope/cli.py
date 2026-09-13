@@ -15,6 +15,14 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from knowledge_scope import __version__
+from knowledge_scope.chatbi import (
+    ChatBIError,
+    ChatBIErrorCategory,
+    DataSource,
+    default_query_policy,
+)
+from knowledge_scope.chatbi.discovery import create_postgres_schema_discovery_service
+from knowledge_scope.chatbi.models import ChatBIDataSourceRecord
 from knowledge_scope.chunking.service import ChunkingError, chunk_document_by_id
 from knowledge_scope.documents.models import DOCUMENT_STATUS_REGISTERED, Document
 from knowledge_scope.documents.registration import (
@@ -237,6 +245,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("health", help="report project, runtime, and configuration health")
+    chatbi = subparsers.add_parser(
+        "chatbi",
+        help="inspect metadata for an external ChatBI datasource",
+    )
+    chatbi_actions = chatbi.add_subparsers(dest="chatbi_action", required=True)
+    chatbi_schema = chatbi_actions.add_parser(
+        "schema",
+        help="discover allow-listed PostgreSQL schema metadata and context",
+    )
+    chatbi_schema.add_argument("datasource_id", type=UUID)
+    chatbi_schema.add_argument("--max-chars", type=_positive_int)
     llm_smoke_test = subparsers.add_parser(
         "llm-smoke-test",
         help="call the configured OpenAI-compatible LLM provider once",
@@ -1194,6 +1213,74 @@ def _run_health() -> int:
     report = build_health_report(settings)
     for key, value in report.as_dict().items():
         print(f"{key}: {value}")
+    return 0
+
+
+async def _discover_chatbi_schema_async(
+    args: argparse.Namespace,
+    settings: Settings,
+) -> dict[str, object]:
+    """Load one registered datasource and discover its safe external schema."""
+    engine = create_database_engine(settings)
+    try:
+        session_factory = create_session_factory(engine)
+        async with session_factory() as session:
+            record = await session.scalar(
+                select(ChatBIDataSourceRecord).where(
+                    ChatBIDataSourceRecord.id == args.datasource_id
+                )
+            )
+            if record is None:
+                raise ChatBIError(
+                    ChatBIErrorCategory.DATASOURCE_NOT_FOUND,
+                    "data source not found",
+                )
+            data_source = DataSource.model_validate(
+                {
+                    "id": record.id,
+                    "display_name": record.display_name,
+                    "dialect": record.dialect,
+                    "enabled": record.enabled,
+                    "connection_ref": record.connection_ref,
+                    "default_database": record.default_database,
+                    "default_schema": record.default_schema,
+                    "created_at": record.created_at,
+                    "updated_at": record.updated_at,
+                }
+            )
+        service = create_postgres_schema_discovery_service(
+            connection_timeout_seconds=settings.chatbi_schema_connection_timeout_seconds,
+            statement_timeout_ms=settings.chatbi_statement_timeout_ms,
+        )
+        result = await service.discover(
+            data_source,
+            default_query_policy(settings),
+            max_chars=args.max_chars or settings.chatbi_schema_context_max_chars,
+        )
+        return result.model_dump(mode="json")
+    finally:
+        await engine.dispose()
+
+
+def _run_chatbi_schema(args: argparse.Namespace) -> int:
+    """Run read-only external schema discovery without printing credentials."""
+    try:
+        settings = get_settings()
+        output = asyncio.run(_discover_chatbi_schema_async(args, settings))
+    except ChatBIError as error:
+        print("chatbi_schema_status: failed", file=sys.stderr)
+        print(f"error: {error.safe_message}", file=sys.stderr)
+        return 1
+    except (ValidationError, ValueError, OSError):
+        print("chatbi_schema_status: failed", file=sys.stderr)
+        print("error: schema discovery failed", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("chatbi_schema_status: interrupted", file=sys.stderr)
+        return 130
+
+    print("chatbi_schema_status: complete")
+    print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -2624,6 +2711,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "health":
         return _run_health()
+    if args.command == "chatbi" and args.chatbi_action == "schema":
+        return _run_chatbi_schema(args)
     if args.command == "llm-smoke-test":
         return _run_llm_smoke_test(args)
     if args.command == "parse-document":

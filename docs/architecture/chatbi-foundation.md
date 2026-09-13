@@ -32,7 +32,13 @@
 PostgreSQL demo/test database（或明确隔离的 demo schema），而不是 KnowledgeScope 应用数据库，因此未来
 ChatBI 查询不会意外读取 `knowledge_bases`、`documents` 等内部表。A5.1 不会自动加载或执行该夹具。
 
+## Schema discovery
+
+当前的只读 PostgreSQL schema discovery、快照 fingerprint 和 `SemanticSchemaContext` 见
+[`chatbi-schema-discovery.md`](chatbi-schema-discovery.md)。该能力仍不执行 SQL，也不读取业务行；
+本文件中的 A5.1 数据源和 `QueryPolicy` 契约继续作为它的输入边界。
+
 ## 后续阶段（未实现）
 
-schema discovery/introspection、完整 AST SQL 安全校验、只读 SQL adapter、NL2SQL、结果分析、MCP 和 Agent
-loop 均不属于 A5.1。后续实现必须继续通过 `DataSource`、`QueryPolicy`、生命周期和安全错误契约。
+完整 AST SQL 安全校验、只读 SQL adapter、NL2SQL、结果分析、MCP 和 Agent loop 均未实现。后续实现必须
+继续通过 `DataSource`、`QueryPolicy`、生命周期和安全错误契约。

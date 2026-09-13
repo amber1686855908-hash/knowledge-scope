@@ -5,14 +5,20 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import get_session
 
+from .discovery import SchemaDiscoveryService, create_postgres_schema_discovery_service
+from .errors import ChatBIError, ChatBIErrorCategory
 from .models import ChatBIDataSourceRecord
+from .policy import default_query_policy
+from .schema_models import SchemaDiscoveryResult
 from .schemas import (
+    DataSource,
     DataSourceCreate,
     DataSourceListResponse,
     DataSourcePublic,
@@ -34,6 +40,44 @@ def _to_public(record: ChatBIDataSourceRecord) -> DataSourcePublic:
         connection_configured=bool(record.connection_ref),
         created_at=record.created_at,
         updated_at=record.updated_at,
+    )
+
+
+def _to_internal(record: ChatBIDataSourceRecord) -> DataSource:
+    """Build the internal datasource contract without exposing it in a response."""
+    return DataSource.model_validate(
+        {
+            "id": record.id,
+            "display_name": record.display_name,
+            "dialect": record.dialect,
+            "enabled": record.enabled,
+            "connection_ref": record.connection_ref,
+            "default_database": record.default_database,
+            "default_schema": record.default_schema,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+        }
+    )
+
+
+def _build_schema_discovery_service(settings: Settings) -> SchemaDiscoveryService:
+    """Create a stateless discovery service for one API request."""
+    return create_postgres_schema_discovery_service(
+        connection_timeout_seconds=settings.chatbi_schema_connection_timeout_seconds,
+        statement_timeout_ms=settings.chatbi_statement_timeout_ms,
+    )
+
+
+def _schema_discovery_http_error(error: ChatBIError) -> HTTPException:
+    if error.category is ChatBIErrorCategory.DATASOURCE_DISABLED:
+        error_status = status.HTTP_409_CONFLICT
+    elif error.category is ChatBIErrorCategory.UNSUPPORTED_DIALECT:
+        error_status = status.HTTP_422_UNPROCESSABLE_CONTENT
+    else:
+        error_status = status.HTTP_502_BAD_GATEWAY
+    return HTTPException(
+        status_code=error_status,
+        detail={"category": error.category.value, "message": error.safe_message},
     )
 
 
@@ -88,6 +132,26 @@ async def list_data_sources(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/{datasource_id}/schema", response_model=SchemaDiscoveryResult)
+async def discover_data_source_schema(
+    datasource_id: UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> SchemaDiscoveryResult:
+    """Discover allow-listed external schema metadata without executing SQL."""
+    record = await _get_data_source(session, datasource_id)
+    settings = request.app.state.settings
+    service = _build_schema_discovery_service(settings)
+    try:
+        return await service.discover(
+            _to_internal(record),
+            default_query_policy(settings),
+            max_chars=settings.chatbi_schema_context_max_chars,
+        )
+    except ChatBIError as error:
+        raise _schema_discovery_http_error(error) from None
 
 
 @router.get("/{datasource_id}", response_model=DataSourcePublic)

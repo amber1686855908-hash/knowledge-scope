@@ -51,6 +51,12 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.rag_rerank_limit == 5
     assert settings.rag_context_budget_chars == 6_000
     assert settings.rag_max_tokens == 512
+    assert settings.chatbi_max_rows == 1_000
+    assert settings.chatbi_statement_timeout_ms == 30_000
+    assert settings.chatbi_schema_connection_timeout_seconds == 10.0
+    assert settings.chatbi_schema_context_max_chars == 24_000
+    assert settings.chatbi_allowed_schemas == ["public"]
+    assert settings.chatbi_allow_views is False
     assert settings.sparse_index_path == Path("data/evaluation/a4-3/sparse.sqlite3")
     assert settings.sparse_bm25_k1 == 1.2
     assert settings.sparse_bm25_b == 0.75
@@ -97,6 +103,12 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_RERANK_LIMIT", "4")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS", "4000")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_MAX_TOKENS", "256")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_MAX_ROWS", "250")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_STATEMENT_TIMEOUT_MS", "5000")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_SCHEMA_CONNECTION_TIMEOUT_SECONDS", "2.5")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_SCHEMA_CONTEXT_MAX_CHARS", "12000")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_ALLOWED_SCHEMAS", '["analytics", "public"]')
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_ALLOW_VIEWS", "true")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_INDEX_PATH", "/tmp/sparse.sqlite3")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_BM25_K1", "1.4")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_BM25_B", "0.6")
@@ -140,6 +152,12 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.rag_rerank_limit == 4
     assert settings.rag_context_budget_chars == 4000
     assert settings.rag_max_tokens == 256
+    assert settings.chatbi_max_rows == 250
+    assert settings.chatbi_statement_timeout_ms == 5_000
+    assert settings.chatbi_schema_connection_timeout_seconds == 2.5
+    assert settings.chatbi_schema_context_max_chars == 12_000
+    assert settings.chatbi_allowed_schemas == ["analytics", "public"]
+    assert settings.chatbi_allow_views is True
     assert settings.sparse_index_path == Path("/tmp/sparse.sqlite3")
     assert settings.sparse_bm25_k1 == 1.4
     assert settings.sparse_bm25_b == 0.6

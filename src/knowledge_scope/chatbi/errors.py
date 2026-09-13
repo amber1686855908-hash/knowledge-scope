@@ -11,6 +11,8 @@ class ChatBIErrorCategory(StrEnum):
     DATASOURCE_NOT_FOUND = "datasource_not_found"
     DATASOURCE_DISABLED = "datasource_disabled"
     UNSUPPORTED_DIALECT = "unsupported_dialect"
+    CREDENTIAL_RESOLUTION_FAILED = "credential_resolution_failed"
+    SCHEMA_DISCOVERY_FAILED = "schema_discovery_failed"
     INVALID_QUERY = "invalid_query"
     UNSAFE_QUERY = "unsafe_query"
     POLICY_VIOLATION = "policy_violation"

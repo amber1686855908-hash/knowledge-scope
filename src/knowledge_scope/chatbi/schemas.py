@@ -41,7 +41,7 @@ def _trimmed_optional(value: str | None, field_name: str) -> str | None:
     return normalized or None
 
 
-def _validate_connection_ref(value: str) -> str:
+def validate_connection_ref(value: str) -> str:
     normalized = _trimmed_required(value, "connection_ref")
     if not _CONNECTION_REF_PATTERN.fullmatch(normalized):
         raise ValueError("connection_ref must use the opaque env:NAME or secret:NAME format")
@@ -98,7 +98,7 @@ class DataSourceCreate(_ChatBIModel):
     @field_validator("connection_ref")
     @classmethod
     def validate_connection_ref(cls, value: str) -> str:
-        return _validate_connection_ref(value)
+        return validate_connection_ref(value)
 
     @field_validator("default_database", "default_schema")
     @classmethod
