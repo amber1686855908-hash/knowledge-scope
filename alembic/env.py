@@ -10,6 +10,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from knowledge_scope.chatbi import models as _chatbi_models  # noqa: F401
 from knowledge_scope.documents import models as document_models
 from knowledge_scope.knowledge_bases import models as _knowledge_base_models  # noqa: F401
 from knowledge_scope.llm import models as _llm_models  # noqa: F401

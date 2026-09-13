@@ -7,10 +7,14 @@ from contextlib import asynccontextmanager
 from typing import Final
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from knowledge_scope import __version__
+from knowledge_scope.chatbi.api import router as chatbi_router
 from knowledge_scope.graph.neo4j import Neo4jGraphStore
 from knowledge_scope.graph.retrieval import GraphRetrievalConfig
 from knowledge_scope.graph.retrieval_service import GraphRetrievalService
@@ -176,6 +180,25 @@ def create_app(
         allow_headers=["Accept", "Content-Type"],
     )
 
+    @application.exception_handler(RequestValidationError)
+    async def handle_validation_error(
+        request: Request, error: RequestValidationError
+    ) -> JSONResponse:
+        """Keep invalid ChatBI request bodies out of validation responses."""
+        data_source_prefix = f"{API_PREFIX}/chatbi/data-sources"
+        if request.url.path == data_source_prefix or request.url.path.startswith(
+            f"{data_source_prefix}/"
+        ):
+            safe_errors = [
+                {key: value for key, value in item.items() if key not in {"input", "ctx"}}
+                for item in error.errors()
+            ]
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                content={"detail": safe_errors},
+            )
+        return await request_validation_exception_handler(request, error)
+
     router = APIRouter(prefix=API_PREFIX)
 
     @router.get("/health", response_model=HealthResponse, tags=["system"])
@@ -219,6 +242,7 @@ def create_app(
     application.include_router(documents_router, prefix=API_PREFIX)
     application.include_router(retrieval_router, prefix=API_PREFIX)
     application.include_router(rag_router, prefix=API_PREFIX)
+    application.include_router(chatbi_router, prefix=API_PREFIX)
     return application
 
 
