@@ -1,6 +1,18 @@
 import pytest
 from httpx import AsyncClient
 
+from knowledge_scope.chatbi import (
+    DataSource,
+    QueryPolicy,
+    SchemaColumn,
+    SchemaDiscoveryResult,
+    SchemaObjectKind,
+    SchemaRelation,
+    SchemaSnapshot,
+    SQLDialect,
+    build_semantic_schema_context,
+)
+
 
 async def create_data_source(client: AsyncClient) -> dict[str, object]:
     response = await client.post(
@@ -78,3 +90,81 @@ async def test_datasource_api_rejects_raw_urls_and_invalid_patches(client: Async
     assert raw_url_response.status_code == 422
     assert "password" not in raw_url_response.text
     assert empty_patch_response.status_code == 422
+
+
+class _FakeSchemaDiscoveryService:
+    async def discover(
+        self,
+        data_source: DataSource,
+        _policy: QueryPolicy,
+        *,
+        max_chars: int,
+    ) -> SchemaDiscoveryResult:
+        snapshot = SchemaSnapshot(
+            datasource_id=data_source.id,
+            dialect=SQLDialect.POSTGRESQL,
+            database_name="business",
+            schemas=("public",),
+            relations=(
+                SchemaRelation(
+                    schema_name="public",
+                    name="sales",
+                    kind=SchemaObjectKind.TABLE,
+                    columns=(
+                        SchemaColumn(
+                            name="id",
+                            normalized_type="integer",
+                            nullable=False,
+                            ordinal=1,
+                        ),
+                    ),
+                    primary_key=("id",),
+                ),
+            ),
+        )
+        return SchemaDiscoveryResult(
+            snapshot=snapshot,
+            fingerprint=snapshot.fingerprint,
+            context=build_semantic_schema_context(snapshot, max_chars=max_chars),
+        )
+
+
+@pytest.mark.anyio
+async def test_schema_endpoint_returns_safe_snapshot_and_context(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = await create_data_source(client)
+    monkeypatch.setattr(
+        "knowledge_scope.chatbi.api._build_schema_discovery_service",
+        lambda _settings: _FakeSchemaDiscoveryService(),
+    )
+
+    response = await client.get(f"/api/v1/chatbi/data-sources/{created['id']}/schema")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["snapshot"]["datasource_id"] == created["id"]
+    assert payload["context"]["included_relations"] == ["public.sales"]
+    assert "connection_ref" not in response.text
+    assert "business" in response.text
+
+
+@pytest.mark.anyio
+async def test_schema_endpoint_rejects_disabled_datasource_without_resolving_credentials(
+    client: AsyncClient,
+) -> None:
+    created = await create_data_source(client)
+    updated = await client.patch(
+        f"/api/v1/chatbi/data-sources/{created['id']}",
+        json={"enabled": False},
+    )
+    assert updated.status_code == 200
+
+    response = await client.get(f"/api/v1/chatbi/data-sources/{created['id']}/schema")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "category": "datasource_disabled",
+        "message": "the data source is disabled",
+    }

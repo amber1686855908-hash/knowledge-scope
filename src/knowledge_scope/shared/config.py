@@ -7,7 +7,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "production"]
@@ -110,6 +110,23 @@ class Settings(BaseSettings):
     unified_result_limit: int = Field(default=20, ge=1, le=500)
     unified_rerank_text_max_chars: int = Field(default=6_000, ge=1, le=20_000)
     unified_failure_mode: Literal["strict", "degraded"] = "degraded"
+    chatbi_max_rows: int = Field(default=1_000, ge=1, le=100_000)
+    chatbi_statement_timeout_ms: int = Field(default=30_000, ge=100, le=600_000)
+    chatbi_schema_connection_timeout_seconds: float = Field(default=10.0, gt=0)
+    chatbi_schema_context_max_chars: int = Field(default=24_000, ge=1, le=1_000_000)
+    chatbi_allowed_schemas: list[str] = Field(default_factory=lambda: ["public"])
+    chatbi_allow_views: bool = False
+
+    @field_validator("chatbi_allowed_schemas")
+    @classmethod
+    def validate_chatbi_allowed_schemas(cls, value: list[str]) -> list[str]:
+        """Keep the configured default schema allow-list explicit and usable."""
+        normalized = [item.strip() for item in value]
+        if not normalized or any(not item for item in normalized):
+            raise ValueError("chatbi_allowed_schemas must contain non-empty names")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("chatbi_allowed_schemas must contain unique names")
+        return normalized
 
     @model_validator(mode="after")
     def validate_graph_extraction_truncation_policy(self) -> Self:

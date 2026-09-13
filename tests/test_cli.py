@@ -59,6 +59,22 @@ def test_health_command_returns_failure_for_invalid_configuration(
     assert "config_status: invalid" in output.err
 
 
+def test_chatbi_schema_parser_requires_datasource_and_supports_budget() -> None:
+    args = build_parser().parse_args(
+        [
+            "chatbi",
+            "schema",
+            "11111111-1111-1111-1111-111111111111",
+            "--max-chars",
+            "12000",
+        ]
+    )
+
+    assert args.chatbi_action == "schema"
+    assert args.datasource_id == UUID("11111111-1111-1111-1111-111111111111")
+    assert args.max_chars == 12_000
+
+
 def test_neo4j_commands_report_readiness_and_schema(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

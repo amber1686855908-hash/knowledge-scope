@@ -45,6 +45,10 @@ text、image、table、formula 都可以作为 Evidence 来源，并拥有多个
 检索路径提供只读、可复现的离线评测和消融记录。评测使用冻结的标注、索引和数据快照，
 结果用于比较具体配置，不替代生产环境的质量或延迟承诺。
 
+### ChatBI schema
+
+外部 PostgreSQL 数据源可读取表、视图、字段、主外键与注释，并生成用于后续数据分析的结构化 Schema Context。
+
 ## 系统架构
 
 ```mermaid
@@ -164,6 +168,7 @@ KnowledgeScope/
 | 知识图谱检索 | [Graph Retrieval](docs/architecture/graph-retrieval.md) |
 | 统一候选池 | [Unified Retrieval](docs/architecture/unified-retrieval.md) |
 | 多模态 Evidence | [Multimodal Evidence](docs/architecture/multimodal-evidence.md) |
+| ChatBI schema discovery | [Schema Discovery](docs/architecture/chatbi-schema-discovery.md) |
 | 检索评测 | [Retrieval Evaluation](docs/benchmarks/a4-5-retrieval-evaluation.md) |
 | 开发记录 | [Project History](docs/development/project-history.md) |
 
@@ -171,7 +176,7 @@ KnowledgeScope/
 
 路线图列出尚未进入产品表面的工作：
 
-- schema discovery、NL2SQL、SQL Safety / Execution；
+- NL2SQL、SQL Safety / Execution；
 - ChatBI MCP、Analytics Agent 和结果分析；
 - 更完整的 GraphRAG 与跨文档实体链接评测；
 - 视觉 embedding、OCR/LLM caption 规模化生成，以及更严格的多模态质量评测。
