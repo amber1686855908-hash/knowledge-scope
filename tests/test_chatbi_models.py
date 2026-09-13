@@ -1,3 +1,4 @@
+import hashlib
 import json
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -128,39 +129,46 @@ def test_query_policy_reads_only_the_chatbi_settings() -> None:
     assert policy.allow_views is True
 
 
-def test_execution_request_has_safe_sql_fingerprint_and_typed_metadata() -> None:
+def test_execution_request_is_intent_only_and_cannot_carry_raw_sql() -> None:
     datasource_id = uuid4()
     request = QueryExecutionRequest(
         datasource_id=datasource_id,
-        sql=" SELECT * FROM chatbi_demo.sales ",
-        parameters={"limit": 10},
+        question="  按客户统计销售额  ",
         context_metadata={"task": "evaluation"},
     )
     same_request = QueryExecutionRequest(
         query_id=request.query_id,
         datasource_id=datasource_id,
-        sql=request.sql,
-        parameters=request.parameters,
-        policy=request.policy,
+        question=request.question,
         context_metadata=request.context_metadata,
         created_at=request.created_at,
     )
 
-    assert request.sql == "SELECT * FROM chatbi_demo.sales"
-    assert request.sql_fingerprint == same_request.sql_fingerprint
-    assert len(request.sql_fingerprint) == 64
+    assert request.question == "按客户统计销售额"
+    assert request == same_request
+    with pytest.raises(ValidationError):
+        QueryExecutionRequest.model_validate({"datasource_id": datasource_id, "sql": "SELECT 1"})
+    with pytest.raises(ValidationError):
+        QueryExecutionRequest.model_validate(
+            {
+                "datasource_id": datasource_id,
+                "question": "查询销售额",
+                "validated_sql": {"normalized_sql": "DROP TABLE public.sales"},
+            }
+        )
 
 
-def test_query_audit_record_tracks_safe_sql_identity_and_lifecycle() -> None:
-    request = QueryExecutionRequest(datasource_id=uuid4(), sql="SELECT 1")
+def test_query_audit_record_tracks_sql_identity_and_lifecycle() -> None:
+    request = QueryExecutionRequest(datasource_id=uuid4(), question="查询销售额")
+    sql_fingerprint = hashlib.sha256(b"SELECT 1").hexdigest()
     audit = QueryAuditRecord(
         query_id=request.query_id,
         datasource_id=request.datasource_id,
-        sql_fingerprint=request.sql_fingerprint,
+        sql_fingerprint=sql_fingerprint,
         state=QueryLifecycleState.VALIDATED,
     )
 
-    assert audit.sql_fingerprint == request.sql_fingerprint
+    assert audit.sql_fingerprint == sql_fingerprint
     assert "sql" not in audit.model_dump()
     assert "SELECT 1" not in audit.model_dump_json()
 
@@ -168,7 +176,7 @@ def test_query_audit_record_tracks_safe_sql_identity_and_lifecycle() -> None:
         QueryAuditRecord(
             query_id=request.query_id,
             datasource_id=request.datasource_id,
-            sql_fingerprint=request.sql_fingerprint,
+            sql_fingerprint=sql_fingerprint,
             state=QueryLifecycleState.SUCCEEDED,
             error_category=ChatBIErrorCategory.EXECUTION_FAILED,
         )
@@ -176,7 +184,7 @@ def test_query_audit_record_tracks_safe_sql_identity_and_lifecycle() -> None:
         QueryAuditRecord(
             query_id=request.query_id,
             datasource_id=request.datasource_id,
-            sql_fingerprint=request.sql_fingerprint,
+            sql_fingerprint=sql_fingerprint,
             state=QueryLifecycleState.FAILED,
         )
 

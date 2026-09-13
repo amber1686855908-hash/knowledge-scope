@@ -12,6 +12,19 @@ from .discovery import (
     create_postgres_schema_discovery_service,
 )
 from .errors import ChatBIError, ChatBIErrorCategory
+from .nl2sql import (
+    NL2SQLService,
+    RegisteredDataSourceProvider,
+    SchemaDiscoveryProvider,
+    build_nl2sql_messages,
+)
+from .nl2sql_models import (
+    NL2SQL_MAX_TOKENS,
+    NL2SQLInput,
+    NL2SQLResult,
+    SQLCandidate,
+    SQLGenerationPayload,
+)
 from .policy import QueryPolicy, SQLDialect, default_query_policy
 from .schema_models import (
     SchemaColumn,
@@ -25,6 +38,7 @@ from .schema_models import (
     SemanticSchemaContext,
     build_semantic_schema_context,
     normalize_postgres_type,
+    render_structural_schema_context,
 )
 from .schemas import (
     ColumnMetadata,
@@ -38,8 +52,10 @@ from .schemas import (
     QueryLifecycleState,
     validate_connection_ref,
 )
+from .sql_validation import policy_fingerprint
 
 __all__ = [
+    "NL2SQL_MAX_TOKENS",
     "ChatBIError",
     "ChatBIErrorCategory",
     "ColumnMetadata",
@@ -49,16 +65,23 @@ __all__ = [
     "DataSourcePublic",
     "DataSourceUpdate",
     "EnvironmentCredentialResolver",
+    "NL2SQLInput",
+    "NL2SQLResult",
+    "NL2SQLService",
     "QueryAuditRecord",
     "QueryExecutionRequest",
     "QueryExecutionResult",
     "QueryLifecycleState",
     "QueryPolicy",
+    "RegisteredDataSourceProvider",
     "ResolvedDatabaseCredentials",
+    "SQLCandidate",
     "SQLDialect",
+    "SQLGenerationPayload",
     "SchemaColumn",
     "SchemaContextBudgetError",
     "SchemaDiscoveryAdapter",
+    "SchemaDiscoveryProvider",
     "SchemaDiscoveryResult",
     "SchemaDiscoveryService",
     "SchemaForeignKey",
@@ -68,9 +91,12 @@ __all__ = [
     "SchemaUniqueConstraint",
     "SecretReferenceResolver",
     "SemanticSchemaContext",
+    "build_nl2sql_messages",
     "build_semantic_schema_context",
     "create_postgres_schema_discovery_service",
     "default_query_policy",
     "normalize_postgres_type",
+    "policy_fingerprint",
+    "render_structural_schema_context",
     "validate_connection_ref",
 ]

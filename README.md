@@ -176,8 +176,7 @@ KnowledgeScope/
 
 路线图列出尚未进入产品表面的工作：
 
-- NL2SQL、SQL Safety / Execution；
-- ChatBI MCP、Analytics Agent 和结果分析；
+- ChatBI SQL 执行、MCP、Analytics Agent 和结果分析；
 - 更完整的 GraphRAG 与跨文档实体链接评测；
 - 视觉 embedding、OCR/LLM caption 规模化生成，以及更严格的多模态质量评测。
 
