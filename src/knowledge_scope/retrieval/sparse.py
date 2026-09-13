@@ -464,23 +464,38 @@ class SparseIndexStore:
         path: Path = SPARSE_DEFAULT_INDEX_PATH,
         *,
         config: SparseIndexConfig | None = None,
+        read_only: bool = False,
     ) -> None:
         validate_sparse_index_path(path)
         self.path = path
+        self.read_only = read_only
         resolved_path = path.resolve()
         self._lock_path = resolved_path.with_name(f"{resolved_path.name}.lock")
         self.config = config or SparseIndexConfig()
         if str(path) == ":memory:":
+            if read_only:
+                raise SparseIndexError("a read-only sparse index must be an existing file")
             database = ":memory:"
         else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            database = str(path)
+            if read_only:
+                if not path.is_file():
+                    raise SparseIndexError(f"read-only sparse index does not exist: {path}")
+                database = f"file:{resolved_path.as_posix()}?mode=ro"
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                database = str(path)
         try:
-            self._connection = sqlite3.connect(database, timeout=30, check_same_thread=False)
+            self._connection = sqlite3.connect(
+                database,
+                timeout=30,
+                check_same_thread=False,
+                uri=read_only,
+            )
             self._connection.execute("PRAGMA foreign_keys = ON")
-            if database != ":memory:":
+            if not read_only and database != ":memory:":
                 self._connection.execute("PRAGMA journal_mode = WAL")
-            self._create_schema()
+            if not read_only:
+                self._create_schema()
         except sqlite3.Error as error:
             raise SparseIndexError("sparse index storage could not be opened") from error
 
@@ -499,6 +514,8 @@ class SparseIndexStore:
     def _writer_lock(self) -> Iterator[None]:
         """Serialize one index's mutating lifecycle across processes."""
 
+        if self.read_only:
+            raise SparseIndexError("read-only sparse index cannot be mutated")
         if str(self.path) == ":memory:":
             yield
             return

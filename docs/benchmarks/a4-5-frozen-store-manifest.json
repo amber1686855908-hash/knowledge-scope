@@ -1,0 +1,46 @@
+{
+  "a21": {
+    "chunk_index_sha256": "3b9bae28a7e864c858a957043ed9232ec11b1ad635dfd9a94edd5fa7192a8d40",
+    "dataset_sha256": "ca5f25fd43fa78973de76e0531a1df8e2c0046c28eb5b6b033438a7d0c34c9ad",
+    "dev_count": 72,
+    "item_count": 108,
+    "knowledge_base_id": "3593a2ee-a326-5a0a-89a2-9a3012666c83",
+    "test_count": 36
+  },
+  "dense": {
+    "collection_name": "knowledgescope_chunks_v1",
+    "collection_role": "a2.5-frozen-dense-chunks",
+    "distance": "cosine",
+    "embedding_config_fingerprint": "17da2c1bed3ce3bd3f94e8292f2530968da3d6f2a8c7743a5c92d1b009d62a92",
+    "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
+    "embedding_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "point_count": 7524,
+    "point_identity_lineage_fingerprint": "64ef7461f1d76bc8e4bd1369ccc72108e86887fd2341c92071acc574c9fdd42b",
+    "schema_version": "1.0",
+    "vector_dimension": 1024
+  },
+  "graph": {
+    "a36_run_id": "e926e1d3-9050-4911-89ef-1632ed0894c2",
+    "eligible_document_count": 246,
+    "evidence_chunk_count": 6087,
+    "knowledge_base_id": "3593a2ee-a326-5a0a-89a2-9a3012666c83",
+    "snapshot_fingerprint": "0f302b343b9e13576c33e1f467e2753788a98089356661e5aa2d6c764e55cf7b"
+  },
+  "knowledge_base_id": "3593a2ee-a326-5a0a-89a2-9a3012666c83",
+  "manifest_version": "a4-5-frozen-stores-v1",
+  "representation": {
+    "collection_fingerprint": "cae75cf4d573b82d47c8f5cc05815e929b5cba6e3df00863f9abd7bd23a11504",
+    "collection_name": "knowledgescope_representations_v1",
+    "collection_role": "a4.2-multimodal-representations",
+    "identity_payload_fingerprint": "4caee3ffba9906e016319f9c2fcd9b240bfe5ac17b2a2c4c036a5b96ed08bb3e",
+    "point_count": 79338
+  },
+  "sparse": {
+    "active_generation_id": "generation-6774b78530a3aa8f8953bf10a285d8eec77191e9394d71f8203e2fd505391400",
+    "active_index_fingerprint": "6774b78530a3aa8f8953bf10a285d8eec77191e9394d71f8203e2fd505391400",
+    "corpus_fingerprint": "ccf6cc98aba94a09ecbee212db3c7ee8362fdc07ca98e69d8fb2ad16b1e33371",
+    "index_path": "data/evaluation/a4-3/sparse.sqlite3",
+    "searchable_chunk_count": 7504,
+    "static_fingerprint": "c304c70fc09057830ff1b3c513835b7cab577304074aa984c8ff2b1f4f263ae9"
+  }
+}

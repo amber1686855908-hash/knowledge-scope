@@ -73,6 +73,10 @@ data/benchmarks/a4-3/
 data/evaluation/a4-4/
 data/benchmarks/a4-4/
 
+# Local A4.5 retrieval evaluation rankings, latency, and runtime artifacts
+data/evaluation/a4-5/
+data/benchmarks/a4-5/
+
 # IDE settings
 .idea/
 .vscode/

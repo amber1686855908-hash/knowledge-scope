@@ -1,0 +1,84 @@
+{
+  "dataset_fingerprint": "467c7a09d5db41c8c02af3562a55cc87fae0ac9bf20be6515b63b10c010ba28c",
+  "dataset_version": "a4-5-multimodal-eval-v2",
+  "dev_count": 36,
+  "dev_document_count": 31,
+  "document_overlap_count": 0,
+  "duplicate_query_count": 0,
+  "file_sha256": "217d83f37d0e84033b3c784044ae2734f6136f6b3604a4406f9b911cff9f5359",
+  "generation_method": "source_derived_template_assisted_v2",
+  "item_count": 72,
+  "knowledge_base_ids": [
+    "3593a2ee-a326-5a0a-89a2-9a3012666c83"
+  ],
+  "leakage_audit_issue_counts": {},
+  "leakage_audit_passed": true,
+  "leakage_checked_item_count": 72,
+  "leakage_issue_counts": {
+    "no_searchable_representation": 219
+  },
+  "leakage_item_count": 0,
+  "leakage_policy": "representation-leakage-v1",
+  "leakage_rejected_count": 219,
+  "modality_counts": {
+    "formula": 10,
+    "image": 38,
+    "table": 24
+  },
+  "near_duplicate_query_count": 0,
+  "query_origin": "source_derived_template_assisted",
+  "repeated_evidence_count": 0,
+  "schema_version": "1.0",
+  "source_evidence_schema_version": "1.0",
+  "subject_counts": {
+    "化学": 8,
+    "历史": 8,
+    "地理": 8,
+    "思想政治": 8,
+    "数学": 8,
+    "物理": 8,
+    "生物": 8,
+    "英语": 8,
+    "语文": 8
+  },
+  "subject_split_counts": {
+    "化学": {
+      "dev": 4,
+      "test": 4
+    },
+    "历史": {
+      "dev": 4,
+      "test": 4
+    },
+    "地理": {
+      "dev": 4,
+      "test": 4
+    },
+    "思想政治": {
+      "dev": 4,
+      "test": 4
+    },
+    "数学": {
+      "dev": 4,
+      "test": 4
+    },
+    "物理": {
+      "dev": 4,
+      "test": 4
+    },
+    "生物": {
+      "dev": 4,
+      "test": 4
+    },
+    "英语": {
+      "dev": 4,
+      "test": 4
+    },
+    "语文": {
+      "dev": 4,
+      "test": 4
+    }
+  },
+  "test_count": 36,
+  "test_document_count": 27
+}

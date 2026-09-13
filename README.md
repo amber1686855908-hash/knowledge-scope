@@ -4,7 +4,7 @@ KnowledgeScope 是一个面向行业文档的 Python 3.12 项目，当前提供�
 
 ## 当前状态
 
-当前已完成 A4.4，提供全量图语料构建、覆盖审计、只读混合检索评测和统一多检索器候选池基础，目前提供：
+当前已完成 A4.5 的只读检索评测基础；项目同时提供全量图语料构建、覆盖审计和统一多检索器候选池基础，目前提供：
 
 - 使用 `uv` 管理的 `src/knowledge_scope` package，以及通过 Settings 驱动的 health、parse-document 和 chunk-document CLI；
 - 基于 FastAPI 的 `GET /api/v1/health` 和 `GET /api/v1/meta`；
@@ -248,7 +248,33 @@ uv run knowledgescope unified-search "查询内容" \
 结果中保留失败状态，不会伪装成空结果。使用 `--failure-mode strict` 可要求四条
 分支均成功。候选池、结果数和 rerank 文本字符上限均可通过
 `KNOWLEDGE_SCOPE_UNIFIED_*` 配置。A4.4 只提供统一候选与最终重排的功能基础，
-当前没有 A4.5 质量 benchmark 或多路检索质量结论。
+不负责产生 A4.5 的评测结论。
+
+运行 A4.5 的只读最终检索消融（不调用答案生成 LLM、不修改 Qdrant/Neo4j）：
+
+```bash
+uv run knowledgescope retrieval-evaluation build-multimodal-dataset
+uv run knowledgescope retrieval-evaluation run \
+  --knowledge-base-id <knowledge-base-uuid> \
+  --split both
+```
+
+仓库安全的 v2 多模态评测集位于
+[`docs/benchmarks/a4-5-multimodal-eval-v2.jsonl`](docs/benchmarks/a4-5-multimodal-eval-v2.jsonl)，
+对应 manifest 为
+[`docs/benchmarks/a4-5-multimodal-eval-v2-manifest.json`](docs/benchmarks/a4-5-multimodal-eval-v2-manifest.json)：
+共 72 条，dev/test 为 36/36，image/table/formula 为 38/24/10，9 个学科各 8 条；查询
+来自独立章节/标题上下文，不复制 representation 正文，并通过 Evidence lineage 与
+表示泄漏审计。v2 是 source-derived、待人工语义核验的流程评测集，不等同于人工质量
+gold。只读评测还会校验
+[`a4-5-frozen-store-manifest.json`](docs/benchmarks/a4-5-frozen-store-manifest.json)
+中的 A2.1、Dense Qdrant、Sparse、A4.2 representation 和 A3.6 图快照；缺失或漂移时
+直接停止，不会修复或初始化存储。逐查询排名和汇总写入被忽略的 `data/evaluation/a4-5/`。
+旧的 [`a4-5-multimodal-eval-v1.jsonl`](docs/benchmarks/a4-5-multimodal-eval-v1.jsonl)
+及其 manifest 仅保留为历史 exploratory evidence，因复用 gold representation text
+而不用于最终质量结论。A4.5 仅复用已有 Dense、Sparse、Graph、Multimodal 和 Unified
+服务，不增加新的融合或 reranking，也不宣称当前实现已经带来质量提升。详见
+[A4.5 评测说明](docs/benchmarks/a4-5-retrieval-evaluation.md)。
 
 安装本地 reranker 基准所需依赖并运行完整比较：
 

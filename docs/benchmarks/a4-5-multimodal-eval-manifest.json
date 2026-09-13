@@ -1,0 +1,32 @@
+{
+  "evaluation_status": "historical_exploratory_invalid_for_final_claims",
+  "invalid_reason": "A4.5 v1 queries reused gold representation text; retain only as historical exploratory evidence.",
+  "dataset_fingerprint": "318686657c8a0905ea69198569d4d5a32a6bf74c79fc56df7bed08c99cbff776",
+  "dataset_version": "a4-5-multimodal-eval-v1",
+  "dev_count": 36,
+  "file_sha256": "6671d69b821d35d9da45c8c52311f88f4ed9b229e23f168aab4eac2484be96d4",
+  "generation_method": "deterministic_source_derived_v1",
+  "item_count": 72,
+  "knowledge_base_ids": [
+    "3593a2ee-a326-5a0a-89a2-9a3012666c83"
+  ],
+  "modality_counts": {
+    "formula": 10,
+    "image": 38,
+    "table": 24
+  },
+  "schema_version": "1.0",
+  "source_evidence_schema_version": "1.0",
+  "subject_counts": {
+    "化学": 8,
+    "历史": 8,
+    "地理": 8,
+    "思想政治": 8,
+    "数学": 8,
+    "物理": 8,
+    "生物": 8,
+    "英语": 8,
+    "语文": 8
+  },
+  "test_count": 36
+}
