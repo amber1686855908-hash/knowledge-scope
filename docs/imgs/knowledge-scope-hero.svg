@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720">
+  <rect width="1600" height="720" fill="#F6F5F0"/>
+  <g stroke="#EFEEE8" stroke-width="1">
+    <path d="M0 80H1600M0 160H1600M0 240H1600M0 320H1600M0 400H1600M0 480H1600M0 560H1600M0 640H1600"/>
+    <path d="M80 0V720M160 0V720M240 0V720M320 0V720M400 0V720M480 0V720M560 0V720M640 0V720M720 0V720M800 0V720M880 0V720M960 0V720M1040 0V720M1120 0V720M1200 0V720M1280 0V720M1360 0V720M1440 0V720M1520 0V720"/>
+  </g>
+  <style>
+    .title{font:700 74px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#171A18}
+    .sub{font:400 24px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#69706B}
+    .h2{font:700 30px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#171A18}
+    .ui{font:400 18px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#171A18}
+    .uib{font:700 18px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#171A18}
+    .small{font:400 16px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#69706B}
+    .tiny{font:400 13px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#69706B}
+    .tinyb{font:700 13px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:.4px;fill:#2F6B50}
+  </style>
+
+  <!-- wordmark -->
+  <g fill="none" stroke="#2F6B50" stroke-width="4">
+    <path d="M98 108V92H114M136 92H152V108M98 130V146H114M136 146H152V130"/>
+  </g>
+  <circle cx="125" cy="119" r="5" fill="#2F6B50"/>
+  <text x="98" y="245" class="title">KnowledgeScope</text>
+  <text x="101" y="304" class="sub">Document intelligence · Hybrid retrieval · Traceable evidence.</text>
+
+  <!-- restrained feature chips -->
+  <g>
+    <rect x="101" y="336" width="170" height="40" rx="20" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <text x="117" y="361" class="tinyb">MULTIMODAL RAG</text>
+    <rect x="283" y="336" width="182" height="40" rx="20" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <text x="299" y="361" class="tinyb">HYBRID RETRIEVAL</text>
+    <rect x="477" y="336" width="190" height="40" rx="20" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <text x="493" y="361" class="tinyb">TRACEABLE EVIDENCE</text>
+  </g>
+
+  <text x="101" y="474" class="h2">From PDF structure to ranked evidence —</text>
+  <text x="101" y="512" class="h2">with every answer linked back to its source.</text>
+  <text x="101" y="558" class="ui" fill="#69706B">Python  •  FastAPI  •  Qdrant  •  Neo4j  •  Vue</text>
+  <text x="101" y="598" class="uib" fill="#2F6B50">Dense + Sparse + Graph + Multi-Representation</text>
+
+  <!-- product panel -->
+  <rect x="825" y="80" width="690" height="588" rx="26" fill="#E6E6E0"/>
+  <rect x="815" y="66" width="690" height="588" rx="26" fill="#FFFFFF" stroke="#D9DDD8"/>
+  <line x1="815" y1="138" x2="1505" y2="138" stroke="#D9DDD8"/>
+  <rect x="845" y="90" width="22" height="22" fill="none" stroke="#2F6B50" stroke-width="2"/>
+  <circle cx="856" cy="101" r="3" fill="#2F6B50"/>
+  <text x="879" y="108" class="uib">KnowledgeScope</text>
+  <rect x="1360" y="86" width="115" height="29" rx="14" fill="#E6EEE9"/>
+  <text x="1378" y="105" class="tinyb">LOCAL INDEX</text>
+
+  <line x1="969" y1="138" x2="969" y2="654" stroke="#D9DDD8"/>
+  <text x="841" y="177" class="tiny" font-weight="700">WORKSPACE</text>
+  <rect x="833" y="192" width="118" height="38" rx="9" fill="#E6EEE9"/>
+  <circle cx="850" cy="211" r="4" fill="#2F6B50"/>
+  <text x="866" y="216" class="small" fill="#171A18">Knowledge</text>
+  <text x="866" y="257" class="small">Documents</text>
+  <text x="866" y="292" class="small">Evidence</text>
+  <text x="841" y="579" class="tiny" font-weight="700">INDEX</text>
+  <text x="841" y="604" class="tiny" fill="#171A18">255 documents</text>
+  <text x="841" y="626" class="tiny" fill="#2F6B50">79,338 reps</text>
+
+  <text x="995" y="190" style="font:700 25px Inter,ui-sans-serif,system-ui,sans-serif;fill:#171A18">Ask across the corpus</text>
+  <text x="995" y="220" class="small">One query, multiple retrieval paths, one ranked evidence list.</text>
+  <rect x="995" y="242" width="484" height="50" rx="14" fill="#F3F4F1" stroke="#D9DDD8"/>
+  <text x="1013" y="273" class="small" fill="#171A18">How does the source explain river formation?</text>
+  <rect x="1405" y="252" width="62" height="30" rx="12" fill="#2F6B50"/>
+  <text x="1421" y="272" class="tiny" font-weight="700" fill="#FFFFFF">Search</text>
+
+  <g>
+    <rect x="995" y="316" width="94" height="36" rx="10" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <circle cx="1011" cy="334" r="4" fill="#2F6B50"/><text x="1022" y="339" class="tiny" font-weight="700" fill="#171A18">Dense</text>
+    <rect x="1099" y="316" width="94" height="36" rx="10" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <circle cx="1115" cy="334" r="4" fill="#2F6B50"/><text x="1126" y="339" class="tiny" fill="#171A18">Sparse</text>
+    <rect x="1203" y="316" width="94" height="36" rx="10" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <circle cx="1219" cy="334" r="4" fill="#2F6B50"/><text x="1230" y="339" class="tiny" fill="#171A18">Graph</text>
+    <rect x="1307" y="316" width="94" height="36" rx="10" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <circle cx="1323" cy="334" r="4" fill="#7D8A83"/><text x="1334" y="339" class="tiny" fill="#171A18">Evidence</text>
+  </g>
+  <line x1="1020" y1="374" x2="1454" y2="374" stroke="#BFC7C1" stroke-width="2"/>
+  <line x1="1042" y1="352" x2="1042" y2="374" stroke="#BFC7C1" stroke-width="2"/>
+  <line x1="1146" y1="352" x2="1146" y2="374" stroke="#BFC7C1" stroke-width="2"/>
+  <line x1="1250" y1="352" x2="1250" y2="374" stroke="#BFC7C1" stroke-width="2"/>
+  <line x1="1354" y1="352" x2="1354" y2="374" stroke="#BFC7C1" stroke-width="2"/>
+  <circle cx="1237" cy="374" r="5" fill="#2F6B50"/>
+  <text x="1190" y="404" class="tinyb">FINAL RERANK</text>
+
+  <g>
+    <rect x="995" y="424" width="484" height="73" rx="13" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <rect x="1009" y="439" width="112" height="24" rx="10" fill="#E6EEE9"/>
+    <text x="1021" y="456" class="tinyb">TEXT EVIDENCE</text>
+    <text x="1137" y="451" class="small" fill="#171A18">Canonical block · page 18</text>
+    <text x="1137" y="477" class="tiny">Dense + Sparse</text>
+
+    <rect x="995" y="507" width="484" height="73" rx="13" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <rect x="1009" y="522" width="112" height="24" rx="10" fill="#EEF0EC"/>
+    <text x="1021" y="539" class="tiny" font-weight="700">TABLE EVIDENCE</text>
+    <text x="1137" y="534" class="small" fill="#171A18">Structured table · page 42</text>
+    <text x="1137" y="560" class="tiny">Evidence</text>
+
+    <rect x="995" y="590" width="484" height="49" rx="13" fill="#FFFFFF" stroke="#D9DDD8"/>
+    <text x="1011" y="620" class="tiny" font-weight="700" fill="#2F6B50">FORMULA EVIDENCE</text>
+    <text x="1150" y="620" class="tiny" fill="#171A18">Formula block · page 57 · Graph + Evidence</text>
+  </g>
+</svg>
