@@ -39,8 +39,8 @@ def _normalize_identifier(value: str, field_name: str = "identifier") -> str:
     normalized = unicodedata.normalize("NFC", value.strip())
     if not normalized:
         raise ValueError(f"{field_name} must contain non-whitespace characters")
-    if any(unicodedata.category(character).startswith("C") for character in normalized):
-        raise ValueError(f"{field_name} must not contain control characters")
+    if "\x00" in normalized:
+        raise ValueError(f"{field_name} must not contain NUL characters")
     return normalized
 
 
@@ -382,14 +382,15 @@ def _render_relation(
     relation: SchemaRelation,
     *,
     foreign_keys: tuple[SchemaForeignKey, ...] | None = None,
+    include_comments: bool = True,
 ) -> str:
     lines = [f"{relation.kind.value.title()}: {_relation_label(relation)}"]
-    if relation.comment:
+    if include_comments and relation.comment:
         lines.append(f"Comment: {relation.comment}")
     for column in relation.columns:
         nullability = "NULL" if column.nullable else "NOT NULL"
         line = f"- {column.name}: {column.normalized_type} {nullability}"
-        if column.comment:
+        if include_comments and column.comment:
             line += f" — {column.comment}"
         lines.append(line)
     if relation.primary_key:
@@ -466,6 +467,98 @@ def build_semantic_schema_context(
     )
 
 
+def render_structural_schema_context(
+    snapshot: SchemaSnapshot,
+    context: SemanticSchemaContext,
+    *,
+    allowed_schemas: tuple[str, ...] = (),
+) -> str:
+    """Render the approved context as deterministic, escaped JSON data.
+
+    Comments remain part of the discovery snapshot and its fingerprint, but
+    are not sent to the NL2SQL provider.  The selected relations,
+    relationships, and policy allow-list are taken from the already budgeted
+    context so the prompt cannot expand the approved object set.  Delimiter-like
+    characters are escaped after JSON encoding so identifiers remain data inside
+    the prompt's schema envelope.
+    """
+    included = set(context.included_relations)
+    known = {_relation_label(relation) for relation in snapshot.relations}
+    if not included <= known:
+        raise SchemaContextBudgetError("semantic context contains an unknown relation")
+
+    omitted_relationships = set(context.omitted_relationships)
+    relationships: list[dict[str, object]] = []
+    relation_payloads: list[dict[str, object]] = []
+    for relation in snapshot.relations:
+        source_label = _relation_label(relation)
+        if source_label not in included:
+            continue
+        relation_payloads.append(
+            {
+                "columns": [
+                    {
+                        "name": column.name,
+                        "nullable": column.nullable,
+                        "type": column.normalized_type,
+                    }
+                    for column in relation.columns
+                ],
+                "kind": relation.kind.value,
+                "name": relation.name,
+                "primary_key": list(relation.primary_key),
+                "schema": relation.schema_name,
+                "unique_constraints": [
+                    {
+                        "columns": list(constraint.columns),
+                        "name": constraint.constraint_name,
+                    }
+                    for constraint in relation.unique_constraints
+                ],
+            }
+        )
+        for foreign_key in relation.foreign_keys:
+            target_label = f"{foreign_key.target_schema}.{foreign_key.target_relation}"
+            relationship_label = _foreign_key_label(relation, foreign_key)
+            if target_label in included and relationship_label not in omitted_relationships:
+                relationships.append(
+                    {
+                        "constraint": foreign_key.constraint_name,
+                        "source_columns": list(foreign_key.source_columns),
+                        "source_relation": source_label,
+                        "target_columns": list(foreign_key.target_columns),
+                        "target_relation": target_label,
+                    }
+                )
+
+    payload = {
+        "allowed_schemas": list(allowed_schemas),
+        "database": snapshot.database_name,
+        "dialect": snapshot.dialect.value,
+        "relations": relation_payloads,
+        "relationships": relationships,
+        "schemas": list(snapshot.schemas),
+    }
+    text = json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).translate(
+        str.maketrans(
+            {
+                "<": r"\u003c",
+                ">": r"\u003e",
+                "&": r"\u0026",
+                "`": r"\u0060",
+            }
+        )
+    )
+    if len(text) > context.max_chars:
+        raise SchemaContextBudgetError("structural schema context exceeds its character budget")
+    return text
+
+
 __all__ = [
     "SCHEMA_COMMENT_MAX_LENGTH",
     "SCHEMA_SNAPSHOT_VERSION",
@@ -482,4 +575,5 @@ __all__ = [
     "SemanticSchemaContext",
     "build_semantic_schema_context",
     "normalize_postgres_type",
+    "render_structural_schema_context",
 ]

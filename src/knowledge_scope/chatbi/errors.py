@@ -14,8 +14,13 @@ class ChatBIErrorCategory(StrEnum):
     CREDENTIAL_RESOLUTION_FAILED = "credential_resolution_failed"
     SCHEMA_DISCOVERY_FAILED = "schema_discovery_failed"
     INVALID_QUERY = "invalid_query"
+    GENERATION_FAILED = "generation_failed"
+    MALFORMED_MODEL_OUTPUT = "malformed_model_output"
+    SQL_PARSE_ERROR = "sql_parse_error"
     UNSAFE_QUERY = "unsafe_query"
     POLICY_VIOLATION = "policy_violation"
+    UNKNOWN_TABLE = "unknown_table"
+    UNKNOWN_COLUMN = "unknown_column"
     EXECUTION_TIMEOUT = "execution_timeout"
     EXECUTION_FAILED = "execution_failed"
 

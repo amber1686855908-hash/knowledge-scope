@@ -13,12 +13,15 @@ from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from knowledge_scope import __version__
 from knowledge_scope.chatbi import (
     ChatBIError,
     ChatBIErrorCategory,
     DataSource,
+    NL2SQLInput,
+    NL2SQLService,
     default_query_policy,
 )
 from knowledge_scope.chatbi.discovery import create_postgres_schema_discovery_service
@@ -256,6 +259,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     chatbi_schema.add_argument("datasource_id", type=UUID)
     chatbi_schema.add_argument("--max-chars", type=_positive_int)
+    chatbi_nl2sql = chatbi_actions.add_parser(
+        "nl2sql",
+        help="generate and validate one read-only PostgreSQL query without executing it",
+    )
+    chatbi_nl2sql.add_argument("datasource_id", type=UUID)
+    chatbi_nl2sql.add_argument("question")
+    chatbi_nl2sql.add_argument("--max-chars", type=_positive_int)
+    chatbi_nl2sql.add_argument("--max-tokens", type=_positive_int)
+    chatbi_nl2sql.add_argument("--model")
     llm_smoke_test = subparsers.add_parser(
         "llm-smoke-test",
         help="call the configured OpenAI-compatible LLM provider once",
@@ -1216,6 +1228,36 @@ def _run_health() -> int:
     return 0
 
 
+def _data_source_from_record(record: ChatBIDataSourceRecord) -> DataSource:
+    return DataSource.model_validate(
+        {
+            "id": record.id,
+            "display_name": record.display_name,
+            "dialect": record.dialect,
+            "enabled": record.enabled,
+            "connection_ref": record.connection_ref,
+            "default_database": record.default_database,
+            "default_schema": record.default_schema,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+        }
+    )
+
+
+class _RegisteredDataSourceProvider:
+    """Load datasource metadata from the KnowledgeScope registry."""
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
+    async def get(self, datasource_id: UUID) -> DataSource | None:
+        async with self._session_factory() as session:
+            record = await session.scalar(
+                select(ChatBIDataSourceRecord).where(ChatBIDataSourceRecord.id == datasource_id)
+            )
+        return _data_source_from_record(record) if record is not None else None
+
+
 async def _discover_chatbi_schema_async(
     args: argparse.Namespace,
     settings: Settings,
@@ -1224,29 +1266,11 @@ async def _discover_chatbi_schema_async(
     engine = create_database_engine(settings)
     try:
         session_factory = create_session_factory(engine)
-        async with session_factory() as session:
-            record = await session.scalar(
-                select(ChatBIDataSourceRecord).where(
-                    ChatBIDataSourceRecord.id == args.datasource_id
-                )
-            )
-            if record is None:
-                raise ChatBIError(
-                    ChatBIErrorCategory.DATASOURCE_NOT_FOUND,
-                    "data source not found",
-                )
-            data_source = DataSource.model_validate(
-                {
-                    "id": record.id,
-                    "display_name": record.display_name,
-                    "dialect": record.dialect,
-                    "enabled": record.enabled,
-                    "connection_ref": record.connection_ref,
-                    "default_database": record.default_database,
-                    "default_schema": record.default_schema,
-                    "created_at": record.created_at,
-                    "updated_at": record.updated_at,
-                }
+        data_source = await _RegisteredDataSourceProvider(session_factory).get(args.datasource_id)
+        if data_source is None:
+            raise ChatBIError(
+                ChatBIErrorCategory.DATASOURCE_NOT_FOUND,
+                "data source not found",
             )
         service = create_postgres_schema_discovery_service(
             connection_timeout_seconds=settings.chatbi_schema_connection_timeout_seconds,
@@ -1280,6 +1304,75 @@ def _run_chatbi_schema(args: argparse.Namespace) -> int:
         return 130
 
     print("chatbi_schema_status: complete")
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
+async def _generate_chatbi_sql_async(
+    args: argparse.Namespace,
+    settings: Settings,
+) -> dict[str, object]:
+    """Generate and validate one query after read-only schema discovery."""
+    engine = create_database_engine(settings)
+    provider = None
+    try:
+        session_factory = create_session_factory(engine)
+        discovery = create_postgres_schema_discovery_service(
+            connection_timeout_seconds=settings.chatbi_schema_connection_timeout_seconds,
+            statement_timeout_ms=settings.chatbi_statement_timeout_ms,
+        )
+        policy = default_query_policy(settings)
+        provider = create_llm_provider(settings)
+        gateway = LLMGateway(
+            provider,
+            DatabaseUsageRecorder(session_factory),
+            settings,
+        )
+        service = NL2SQLService(
+            gateway,
+            schema_discovery=discovery,
+            data_source_provider=_RegisteredDataSourceProvider(session_factory),
+            max_tokens=args.max_tokens or settings.chatbi_nl2sql_max_tokens,
+        )
+        result = await service.generate_for_registered_data_source(
+            args.datasource_id,
+            NL2SQLInput(
+                datasource_id=args.datasource_id,
+                question=args.question,
+                model=args.model,
+            ),
+            policy=policy,
+            max_chars=args.max_chars or settings.chatbi_schema_context_max_chars,
+        )
+        return result.model_dump(mode="json")
+    finally:
+        if provider is not None:
+            await provider.aclose()
+        await engine.dispose()
+
+
+def _run_chatbi_nl2sql(args: argparse.Namespace) -> int:
+    """Run generation plus AST validation without exposing provider details."""
+    try:
+        settings = get_settings()
+        output = asyncio.run(_generate_chatbi_sql_async(args, settings))
+    except ChatBIError as error:
+        print("chatbi_nl2sql_status: failed", file=sys.stderr)
+        print(f"error: {error.safe_message}", file=sys.stderr)
+        return 1
+    except LLMError:
+        print("chatbi_nl2sql_status: failed", file=sys.stderr)
+        print("error: NL2SQL generation failed", file=sys.stderr)
+        return 1
+    except (ValidationError, ValueError, OSError):
+        print("chatbi_nl2sql_status: failed", file=sys.stderr)
+        print("error: NL2SQL generation or validation failed", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("chatbi_nl2sql_status: interrupted", file=sys.stderr)
+        return 130
+
+    print("chatbi_nl2sql_status: complete")
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 
@@ -2713,6 +2806,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_health()
     if args.command == "chatbi" and args.chatbi_action == "schema":
         return _run_chatbi_schema(args)
+    if args.command == "chatbi" and args.chatbi_action == "nl2sql":
+        return _run_chatbi_nl2sql(args)
     if args.command == "llm-smoke-test":
         return _run_llm_smoke_test(args)
     if args.command == "parse-document":

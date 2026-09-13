@@ -75,6 +75,30 @@ def test_chatbi_schema_parser_requires_datasource_and_supports_budget() -> None:
     assert args.max_chars == 12_000
 
 
+def test_chatbi_nl2sql_parser_requires_question_and_supports_limits() -> None:
+    args = build_parser().parse_args(
+        [
+            "chatbi",
+            "nl2sql",
+            "11111111-1111-1111-1111-111111111111",
+            "按客户统计销售额",
+            "--max-chars",
+            "12000",
+            "--max-tokens",
+            "256",
+            "--model",
+            "deepseek-chat",
+        ]
+    )
+
+    assert args.chatbi_action == "nl2sql"
+    assert args.datasource_id == UUID("11111111-1111-1111-1111-111111111111")
+    assert args.question == "按客户统计销售额"
+    assert args.max_chars == 12_000
+    assert args.max_tokens == 256
+    assert args.model == "deepseek-chat"
+
+
 def test_neo4j_commands_report_readiness_and_schema(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

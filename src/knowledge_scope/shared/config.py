@@ -116,6 +116,7 @@ class Settings(BaseSettings):
     chatbi_schema_context_max_chars: int = Field(default=24_000, ge=1, le=1_000_000)
     chatbi_allowed_schemas: list[str] = Field(default_factory=lambda: ["public"])
     chatbi_allow_views: bool = False
+    chatbi_nl2sql_max_tokens: int = Field(default=512, ge=1, le=16_384)
 
     @field_validator("chatbi_allowed_schemas")
     @classmethod

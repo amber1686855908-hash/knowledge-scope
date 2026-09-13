@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from datetime import UTC, datetime
@@ -13,7 +12,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
 from .errors import ChatBIErrorCategory
-from .policy import QueryPolicy, SQLDialect
+from .policy import SQLDialect
 
 CONNECTION_REF_MAX_LENGTH: Final = 255
 DATASOURCE_DISPLAY_NAME_MAX_LENGTH: Final = 200
@@ -181,25 +180,24 @@ class ColumnMetadata(_ChatBIModel):
 
 
 class QueryExecutionRequest(_ChatBIModel):
-    """Future execution input, without implementing SQL execution in A5.1."""
+    """Future execution intent; raw SQL is not an execution-ready input.
+
+    A future execution adapter must re-enter the trusted datasource-bound
+    validation path with untrusted SQL. This public request deliberately
+    carries only user intent and datasource identity, so a serialized raw SQL
+    string or validation result cannot bypass validation.
+    """
 
     query_id: UUID = Field(default_factory=uuid4)
     datasource_id: UUID
-    sql: str = Field(min_length=1, max_length=SQL_TEXT_MAX_LENGTH)
-    parameters: dict[str, ScalarValue] = Field(default_factory=dict)
-    policy: QueryPolicy = Field(default_factory=QueryPolicy)
+    question: str = Field(min_length=1, max_length=10_000)
     context_metadata: dict[str, str] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    @field_validator("sql")
+    @field_validator("question")
     @classmethod
-    def normalize_sql(cls, value: str) -> str:
-        return _trimmed_required(value, "sql")
-
-    @property
-    def sql_fingerprint(self) -> str:
-        """Return a safe identifier for audit correlation without exposing SQL."""
-        return hashlib.sha256(self.sql.encode("utf-8")).hexdigest()
+    def normalize_question(cls, value: str) -> str:
+        return _trimmed_required(value, "question")
 
 
 class QueryAuditRecord(_ChatBIModel):

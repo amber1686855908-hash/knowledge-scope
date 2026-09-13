@@ -1,7 +1,7 @@
 # A5.1 ChatBI / NL2SQL 领域基础
 
-本阶段只建立 ChatBI 的 provider-independent 领域契约、数据源元数据和安全策略基础，不执行
-自然语言转 SQL，也不执行任意 SQL。
+本文件记录 ChatBI 的 provider-independent 领域契约、数据源元数据和安全策略基础。当前可以
+生成并静态验证只读 SQL，但不执行自然语言生成的 SQL，也不执行任意 SQL。
 
 ## 当前边界
 
@@ -10,7 +10,7 @@
 - `DataSource` 描述稳定 ID、显示名称、`postgresql` dialect、启用状态、可选默认 database/schema 和时间元数据；
 - `connection_ref` 只能使用 `env:NAME` 或 `secret:NAME` 形式的 opaque reference，指向外部管理的连接/凭据配置，不是数据库 URL，也不保存明文密码；
 - `QueryPolicy` 默认只读、最多 1,000 行、30,000 ms statement timeout、仅允许 `public` schema、默认不允许 views，并固定 `max_statement_count=1`；
-- `QueryExecutionRequest` 和 `QueryExecutionResult` 定义未来 adapter 使用的请求、规范化列/行结果、截断状态、时长和安全错误类别；结果不会携带 SQLAlchemy row 对象；
+- `QueryExecutionRequest` 只表示未来执行意图（datasource、question 和审计 metadata），不接受 raw SQL；`QueryExecutionResult` 定义未来 adapter 使用的规范化列/行结果、截断状态、时长和安全错误类别；结果不会携带 SQLAlchemy row 对象；
 - `QueryLifecycleState` 固定了 `created`、`validated`、`rejected`、`executing`、`succeeded`、`failed`、`cancelled` 等最小审计状态；`QueryAuditRecord` 要求拒绝、失败和取消状态带有错误类别，成功和进行中状态不得带错误类别；
 - `/api/v1/chatbi/data-sources` 仅管理数据源安全元数据，响应不会返回 `connection_ref`，当前没有 `/execute-sql` endpoint。
 
@@ -22,9 +22,10 @@
 
 ## SQL 安全边界
 
-未来的执行阶段至少必须拒绝 `INSERT`、`UPDATE`、`DELETE`、`MERGE`、`DROP`、`ALTER`、`CREATE`、
-`TRUNCATE`、`GRANT`、`REVOKE`、`COPY`、多语句和事务控制语句，只允许经过完整策略检查的读查询（包括安全的
-`WITH`）。A5.1 只冻结这些不变量，不实现最终 SQL parser/validator；仅靠正则表达式不足以作为最终安全校验。
+`chatbi-nl2sql-safety.md` 中的 validator 使用 PostgreSQL AST 拒绝 `INSERT`、`UPDATE`、`DELETE`、
+`MERGE`、`DROP`、`ALTER`、`CREATE`、`TRUNCATE`、`GRANT`、`REVOKE`、`COPY`、多语句和事务控制语句，
+只接受经过完整策略检查的读查询（包括安全的 `WITH`）。这里的规则由 `sqlglot` AST、权威
+`SchemaSnapshot` 和 `QueryPolicy` 共同执行；正则表达式不作为 SQL 安全校验。
 
 ## 本地数据源夹具
 
@@ -38,7 +39,7 @@ ChatBI 查询不会意外读取 `knowledge_bases`、`documents` 等内部表。A
 [`chatbi-schema-discovery.md`](chatbi-schema-discovery.md)。该能力仍不执行 SQL，也不读取业务行；
 本文件中的 A5.1 数据源和 `QueryPolicy` 契约继续作为它的输入边界。
 
-## 后续阶段（未实现）
+## 尚未覆盖的边界
 
-完整 AST SQL 安全校验、只读 SQL adapter、NL2SQL、结果分析、MCP 和 Agent loop 均未实现。后续实现必须
-继续通过 `DataSource`、`QueryPolicy`、生命周期和安全错误契约。
+只读 SQL adapter、SQL 执行、结果分析、MCP 和 Agent loop 尚未实现。后续实现必须继续通过
+`DataSource`、`QueryPolicy`、生命周期和安全错误契约。
