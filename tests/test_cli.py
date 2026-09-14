@@ -114,6 +114,27 @@ def test_chatbi_execute_parser_accepts_datasource_and_sql() -> None:
     assert args.sql == "SELECT 1"
 
 
+def test_chatbi_ask_parser_accepts_question_and_model() -> None:
+    args = build_parser().parse_args(
+        [
+            "chatbi",
+            "ask",
+            "11111111-1111-1111-1111-111111111111",
+            "统计销售额",
+            "--max-chars",
+            "12000",
+            "--model",
+            "deepseek-chat",
+        ]
+    )
+
+    assert args.chatbi_action == "ask"
+    assert args.datasource_id == UUID("11111111-1111-1111-1111-111111111111")
+    assert args.question == "统计销售额"
+    assert args.max_chars == 12_000
+    assert args.model == "deepseek-chat"
+
+
 def test_chatbi_sql_cli_display_redacts_nested_sql_literals() -> None:
     displayed = _redact_sql_display(
         {

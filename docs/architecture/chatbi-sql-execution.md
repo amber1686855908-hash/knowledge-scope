@@ -1,8 +1,8 @@
 # ChatBI 只读 SQL 执行
 
-本文件记录 A5.4 的 PostgreSQL 执行边界。它只负责执行已经通过 A5.3
-AST/policy 校验的查询并返回规范化表格结果，不实现 SQL 生成、MCP、Agent loop、结果分析或
-前端 ChatBI 页面。
+本文件记录 PostgreSQL 的只读执行边界。它只负责执行已经通过 A5.3
+AST/policy 校验的查询并返回规范化表格结果。ChatBI Agent 会复用这条边界；本文件不负责
+SQL 生成、MCP、结果分析或前端 ChatBI 页面。
 
 ## 信任边界
 
@@ -105,3 +105,7 @@ knowledgescope chatbi execute <datasource_id> "SELECT ..."
 命令只通过 KnowledgeScope 应用数据库中已注册且启用的数据源执行，SQL 作为未受信任输入，
 不会调用 LLM；命令输出中的 SQL 只显示经过字面量脱敏的结构。`chatbi nl2sql` 仍只生成并校验
 SQL，不会隐式执行模型输出，且其 CLI 展示同样不保留字面量。
+
+`knowledgescope chatbi ask <datasource_id> <question>` 会在同一个注册数据源、discovery、
+校验和只读执行边界上运行有界 Agent，并在执行成功后调用结果分析；它不会把调用方提交的
+`ValidatedSQL` 当作授权凭证。

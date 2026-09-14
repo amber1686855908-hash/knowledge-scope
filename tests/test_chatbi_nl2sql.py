@@ -235,6 +235,54 @@ async def test_production_generation_discovers_snapshot_from_registered_datasour
 
 
 @pytest.mark.anyio
+async def test_candidate_generation_exposes_usage_and_bounded_repair_context() -> None:
+    request = _request()
+
+    class FakeDiscovery:
+        async def discover(
+            self,
+            _data_source: DataSource,
+            _policy: QueryPolicy,
+            *,
+            max_chars: int,
+        ) -> SchemaDiscoveryResult:
+            assert max_chars == 10_000
+            return SchemaDiscoveryResult(
+                snapshot=request.schema_snapshot,
+                fingerprint=request.schema_snapshot.fingerprint,
+                context=request.semantic_context,
+            )
+
+    class FakeDataSourceProvider:
+        async def get(self, _datasource_id: UUID) -> DataSource:
+            return _data_source()
+
+    gateway = _FakeGateway(json.dumps({"sql": "SELECT 1"}))
+    service = NL2SQLService(
+        gateway,
+        schema_discovery=FakeDiscovery(),
+        data_source_provider=FakeDataSourceProvider(),
+    )
+
+    candidate, usage = await service.generate_candidate_with_usage_for_registered_data_source(
+        DATASOURCE_ID,
+        NL2SQLInput(datasource_id=DATASOURCE_ID, question="查询销售额"),
+        policy=QueryPolicy(),
+        max_chars=10_000,
+        previous_sql="SELECT * FROM public.missing",
+        validation_error="unknown table",
+    )
+
+    assert candidate.sql == "SELECT 1"
+    assert usage.input_tokens == 10
+    assert usage.output_tokens == 5
+    assert len(gateway.requests) == 1
+    repair_content = gateway.requests[0].messages[1].content
+    assert '"previous_sql":"SELECT * FROM public.missing"' in repair_content
+    assert '"validation_error":"unknown table"' in repair_content
+
+
+@pytest.mark.anyio
 async def test_production_validation_uses_discovered_snapshot_not_caller_snapshot() -> None:
     request = _request()
 

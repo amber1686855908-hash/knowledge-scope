@@ -27,6 +27,8 @@ class ChatBIErrorCategory(StrEnum):
     RESULT_NORMALIZATION_FAILED = "result_normalization_failed"
     RESULT_SIZE_EXCEEDED = "result_size_exceeded"
     EXECUTION_CANCELLED = "execution_cancelled"
+    ANALYSIS_FAILED = "analysis_failed"
+    AGENT_LIMIT_EXCEEDED = "agent_limit_exceeded"
 
 
 class ChatBIError(RuntimeError):

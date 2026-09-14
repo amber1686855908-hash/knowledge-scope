@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from knowledge_scope import __version__
 from knowledge_scope.chatbi import (
+    ChatBIAgentLimits,
+    ChatBIAgentService,
     ChatBIError,
     ChatBIErrorCategory,
     DataSource,
@@ -279,6 +281,14 @@ def build_parser() -> argparse.ArgumentParser:
     chatbi_execute.add_argument("datasource_id", type=UUID)
     chatbi_execute.add_argument("sql")
     chatbi_execute.add_argument("--max-chars", type=_positive_int)
+    chatbi_ask = chatbi_actions.add_parser(
+        "ask",
+        help="generate, execute, and analyze one bounded read-only ChatBI question",
+    )
+    chatbi_ask.add_argument("datasource_id", type=UUID)
+    chatbi_ask.add_argument("question")
+    chatbi_ask.add_argument("--max-chars", type=_positive_int)
+    chatbi_ask.add_argument("--model")
     llm_smoke_test = subparsers.add_parser(
         "llm-smoke-test",
         help="call the configured OpenAI-compatible LLM provider once",
@@ -1458,6 +1468,89 @@ def _run_chatbi_execute(args: argparse.Namespace) -> int:
         print(json.dumps(output, ensure_ascii=False, indent=2), file=sys.stderr)
         return 1
     print("chatbi_execute_status: complete")
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
+async def _ask_chatbi_async(
+    args: argparse.Namespace,
+    settings: Settings,
+) -> dict[str, object]:
+    """Run the bounded ChatBI agent through the existing trusted service chain."""
+    engine = create_database_engine(settings)
+    provider = None
+    try:
+        session_factory = create_session_factory(engine)
+        discovery = create_postgres_schema_discovery_service(
+            connection_timeout_seconds=settings.chatbi_schema_connection_timeout_seconds,
+            statement_timeout_ms=settings.chatbi_statement_timeout_ms,
+        )
+        provider = create_llm_provider(settings)
+        gateway = LLMGateway(
+            provider,
+            DatabaseUsageRecorder(session_factory),
+            settings,
+        )
+        generation = NL2SQLService(
+            gateway,
+            schema_discovery=discovery,
+            data_source_provider=_RegisteredDataSourceProvider(session_factory),
+            max_tokens=settings.chatbi_nl2sql_max_tokens,
+        )
+        execution = SQLExecutionService(
+            generation,
+            EnvironmentCredentialResolver(),
+            PostgresExecutionAdapter(
+                connection_timeout_seconds=settings.chatbi_schema_connection_timeout_seconds,
+                statement_timeout_ms=settings.chatbi_statement_timeout_ms,
+            ),
+        )
+        result = await ChatBIAgentService(
+            generation,
+            execution,
+            gateway,
+            limits=ChatBIAgentLimits.from_settings(settings),
+        ).ask(
+            args.datasource_id,
+            args.question,
+            policy=default_query_policy(settings),
+            max_chars=args.max_chars or settings.chatbi_schema_context_max_chars,
+            model=args.model,
+        )
+        return result.model_dump(mode="json")
+    finally:
+        if provider is not None:
+            await provider.aclose()
+        await engine.dispose()
+
+
+def _run_chatbi_ask(args: argparse.Namespace) -> int:
+    """Run the bounded ChatBI agent and display only its safe result contract."""
+    try:
+        settings = get_settings()
+        output = asyncio.run(_ask_chatbi_async(args, settings))
+    except ChatBIError as error:
+        print("chatbi_ask_status: failed", file=sys.stderr)
+        print(f"error: {error.safe_message}", file=sys.stderr)
+        return 1
+    except LLMError:
+        print("chatbi_ask_status: failed", file=sys.stderr)
+        print("error: ChatBI LLM call failed", file=sys.stderr)
+        return 1
+    except (ValidationError, ValueError, OSError):
+        print("chatbi_ask_status: failed", file=sys.stderr)
+        print("error: ChatBI request failed", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("chatbi_ask_status: interrupted", file=sys.stderr)
+        return 130
+
+    success = output.get("execution_status") == "succeeded" and output.get("error_category") is None
+    if not success:
+        print("chatbi_ask_status: failed", file=sys.stderr)
+        print(json.dumps(output, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 1
+    print("chatbi_ask_status: complete")
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 
@@ -2895,6 +2988,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_chatbi_nl2sql(args)
     if args.command == "chatbi" and args.chatbi_action == "execute":
         return _run_chatbi_execute(args)
+    if args.command == "chatbi" and args.chatbi_action == "ask":
+        return _run_chatbi_ask(args)
     if args.command == "llm-smoke-test":
         return _run_llm_smoke_test(args)
     if args.command == "parse-document":

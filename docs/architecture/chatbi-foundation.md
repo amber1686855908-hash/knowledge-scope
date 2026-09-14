@@ -43,6 +43,7 @@ ChatBI 查询不会意外读取 `knowledge_bases`、`documents` 等内部表。�
 
 ## 尚未覆盖的边界
 
-结果分析、MCP 和 Agent loop 尚未实现。SQL 执行的边界见
+MCP 和面向更复杂任务的工具编排仍未实现。有界 ChatBI Agent 的编排与结果分析见
+[`chatbi-agent.md`](chatbi-agent.md)；SQL 执行的边界见
 [`chatbi-sql-execution.md`](chatbi-sql-execution.md)。后续实现必须继续通过 `DataSource`、
 `QueryPolicy`、生命周期和安全错误契约。
