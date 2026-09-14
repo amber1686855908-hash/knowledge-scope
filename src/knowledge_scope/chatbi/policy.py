@@ -59,6 +59,10 @@ class QueryPolicy(BaseModel):
     dialect: SQLDialect = SQLDialect.POSTGRESQL
     read_only: StrictBool = True
     max_rows: StrictInt = Field(default=1_000, ge=1, le=100_000)
+    max_result_bytes: StrictInt = Field(default=4_000_000, ge=2, le=100_000_000)
+    max_cell_bytes: StrictInt = Field(default=1_000_000, ge=1, le=100_000_000)
+    max_nested_value_depth: StrictInt = Field(default=32, ge=1, le=256)
+    max_collection_items: StrictInt = Field(default=10_000, ge=1, le=1_000_000)
     statement_timeout_ms: StrictInt = Field(default=30_000, ge=100, le=600_000)
     allowed_schemas: tuple[str, ...] = DEFAULT_CHATBI_ALLOWED_SCHEMAS
     denied_schemas: tuple[str, ...] = ()
@@ -102,6 +106,10 @@ def default_query_policy(settings: Settings) -> QueryPolicy:
     """Build the policy from validated application settings."""
     return QueryPolicy(
         max_rows=settings.chatbi_max_rows,
+        max_result_bytes=settings.chatbi_max_result_bytes,
+        max_cell_bytes=settings.chatbi_max_cell_bytes,
+        max_nested_value_depth=settings.chatbi_max_nested_value_depth,
+        max_collection_items=settings.chatbi_max_collection_items,
         statement_timeout_ms=settings.chatbi_statement_timeout_ms,
         allowed_schemas=tuple(settings.chatbi_allowed_schemas),
         allow_views=settings.chatbi_allow_views,

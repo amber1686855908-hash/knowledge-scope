@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from knowledge_scope.chunking.models import ChunkedDocument
-from knowledge_scope.cli import build_parser, main
+from knowledge_scope.cli import _redact_sql_display, build_parser, main
 from knowledge_scope.graph.neo4j import Neo4jReadiness
 from knowledge_scope.parsing.mineru_adapter import AdapterStats
 from knowledge_scope.parsing.models import CanonicalDocument, Page, TextBlock
@@ -97,6 +97,41 @@ def test_chatbi_nl2sql_parser_requires_question_and_supports_limits() -> None:
     assert args.max_chars == 12_000
     assert args.max_tokens == 256
     assert args.model == "deepseek-chat"
+
+
+def test_chatbi_execute_parser_accepts_datasource_and_sql() -> None:
+    args = build_parser().parse_args(
+        [
+            "chatbi",
+            "execute",
+            "11111111-1111-1111-1111-111111111111",
+            "SELECT 1",
+        ]
+    )
+
+    assert args.chatbi_action == "execute"
+    assert args.datasource_id == UUID("11111111-1111-1111-1111-111111111111")
+    assert args.sql == "SELECT 1"
+
+
+def test_chatbi_sql_cli_display_redacts_nested_sql_literals() -> None:
+    displayed = _redact_sql_display(
+        {
+            "candidate": {"sql": "SELECT * FROM public.sales WHERE id = 'secret'"},
+            "validated_sql": {
+                "original_sql": "SELECT 1",
+                "normalized_sql": "SELECT * FROM public.sales LIMIT 1000",
+            },
+        }
+    )
+
+    assert displayed == {
+        "candidate": {"sql": "SELECT * FROM public.sales WHERE id = '<redacted>'"},
+        "validated_sql": {
+            "original_sql": "SELECT 0",
+            "normalized_sql": "SELECT * FROM public.sales LIMIT 0",
+        },
+    }
 
 
 def test_neo4j_commands_report_readiness_and_schema(

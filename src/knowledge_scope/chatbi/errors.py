@@ -21,8 +21,12 @@ class ChatBIErrorCategory(StrEnum):
     POLICY_VIOLATION = "policy_violation"
     UNKNOWN_TABLE = "unknown_table"
     UNKNOWN_COLUMN = "unknown_column"
+    DATASOURCE_UNAVAILABLE = "datasource_unavailable"
     EXECUTION_TIMEOUT = "execution_timeout"
     EXECUTION_FAILED = "execution_failed"
+    RESULT_NORMALIZATION_FAILED = "result_normalization_failed"
+    RESULT_SIZE_EXCEEDED = "result_size_exceeded"
+    EXECUTION_CANCELLED = "execution_cancelled"
 
 
 class ChatBIError(RuntimeError):

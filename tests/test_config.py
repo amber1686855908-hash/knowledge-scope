@@ -52,6 +52,10 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.rag_context_budget_chars == 6_000
     assert settings.rag_max_tokens == 512
     assert settings.chatbi_max_rows == 1_000
+    assert settings.chatbi_max_result_bytes == 4_000_000
+    assert settings.chatbi_max_cell_bytes == 1_000_000
+    assert settings.chatbi_max_nested_value_depth == 32
+    assert settings.chatbi_max_collection_items == 10_000
     assert settings.chatbi_statement_timeout_ms == 30_000
     assert settings.chatbi_schema_connection_timeout_seconds == 10.0
     assert settings.chatbi_schema_context_max_chars == 24_000
@@ -105,6 +109,10 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_CONTEXT_BUDGET_CHARS", "4000")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_RAG_MAX_TOKENS", "256")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_MAX_ROWS", "250")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_MAX_RESULT_BYTES", "2000000")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_MAX_CELL_BYTES", "500000")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_MAX_NESTED_VALUE_DEPTH", "16")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_MAX_COLLECTION_ITEMS", "5000")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_STATEMENT_TIMEOUT_MS", "5000")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_SCHEMA_CONNECTION_TIMEOUT_SECONDS", "2.5")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_SCHEMA_CONTEXT_MAX_CHARS", "12000")
@@ -155,6 +163,10 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.rag_context_budget_chars == 4000
     assert settings.rag_max_tokens == 256
     assert settings.chatbi_max_rows == 250
+    assert settings.chatbi_max_result_bytes == 2_000_000
+    assert settings.chatbi_max_cell_bytes == 500_000
+    assert settings.chatbi_max_nested_value_depth == 16
+    assert settings.chatbi_max_collection_items == 5_000
     assert settings.chatbi_statement_timeout_ms == 5_000
     assert settings.chatbi_schema_connection_timeout_seconds == 2.5
     assert settings.chatbi_schema_context_max_chars == 12_000
