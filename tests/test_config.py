@@ -62,6 +62,11 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.chatbi_allowed_schemas == ["public"]
     assert settings.chatbi_allow_views is False
     assert settings.chatbi_nl2sql_max_tokens == 512
+    assert settings.chatbi_agent_max_sql_attempts == 2
+    assert settings.chatbi_agent_max_repair_attempts == 1
+    assert settings.chatbi_agent_max_steps == 6
+    assert settings.chatbi_agent_max_llm_calls == 3
+    assert settings.chatbi_analysis_max_tokens == 512
     assert settings.sparse_index_path == Path("data/evaluation/a4-3/sparse.sqlite3")
     assert settings.sparse_bm25_k1 == 1.2
     assert settings.sparse_bm25_b == 0.75
@@ -119,6 +124,11 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_ALLOWED_SCHEMAS", '["analytics", "public"]')
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_ALLOW_VIEWS", "true")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_NL2SQL_MAX_TOKENS", "1024")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_AGENT_MAX_SQL_ATTEMPTS", "3")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_AGENT_MAX_REPAIR_ATTEMPTS", "2")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_AGENT_MAX_STEPS", "8")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_AGENT_MAX_LLM_CALLS", "4")
+    monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_ANALYSIS_MAX_TOKENS", "768")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_INDEX_PATH", "/tmp/sparse.sqlite3")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_BM25_K1", "1.4")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_BM25_B", "0.6")
@@ -173,6 +183,11 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.chatbi_allowed_schemas == ["analytics", "public"]
     assert settings.chatbi_allow_views is True
     assert settings.chatbi_nl2sql_max_tokens == 1024
+    assert settings.chatbi_agent_max_sql_attempts == 3
+    assert settings.chatbi_agent_max_repair_attempts == 2
+    assert settings.chatbi_agent_max_steps == 8
+    assert settings.chatbi_agent_max_llm_calls == 4
+    assert settings.chatbi_analysis_max_tokens == 768
     assert settings.sparse_index_path == Path("/tmp/sparse.sqlite3")
     assert settings.sparse_bm25_k1 == 1.4
     assert settings.sparse_bm25_b == 0.6

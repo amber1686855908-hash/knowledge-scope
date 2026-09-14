@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -33,7 +33,7 @@ from .schema_models import (
     SchemaDiscoveryResult,
     render_structural_schema_context,
 )
-from .schemas import DataSource
+from .schemas import SQL_TEXT_MAX_LENGTH, DataSource
 from .sql_validation import _SQLSafetyValidator
 
 
@@ -71,6 +71,44 @@ class _RegisteredValidation:
     data_source: DataSource
     request: _NL2SQLRequest
     validated: ValidatedSQL
+
+
+@dataclass(frozen=True, slots=True)
+class LLMUsageMetadata:
+    """Non-secret usage carried across a completed NL2SQL parse failure."""
+
+    provider: str
+    model: str
+    input_tokens: int | None
+    output_tokens: int | None
+    provider_attempts: int
+    task_type: Literal["nl2sql"] = "nl2sql"
+
+    @classmethod
+    def from_result(cls, result: LLMResult) -> LLMUsageMetadata:
+        if not isinstance(result, LLMResult):
+            raise TypeError("result must be a normalized LLM result")
+        return cls(
+            provider=result.provider,
+            model=result.model,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            provider_attempts=result.provider_attempts,
+        )
+
+
+class NL2SQLGenerationError(ChatBIError):
+    """Controlled post-provider generation failure with completed-call usage."""
+
+    def __init__(
+        self,
+        category: ChatBIErrorCategory,
+        message: str,
+        *,
+        usage: LLMUsageMetadata,
+    ) -> None:
+        super().__init__(category, message)
+        self.usage = usage
 
 
 def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -141,6 +179,43 @@ def build_nl2sql_messages(request: _NL2SQLRequest) -> list[LLMMessage]:
     return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user)]
 
 
+def build_nl2sql_repair_messages(
+    request: _NL2SQLRequest,
+    *,
+    previous_sql: str | None,
+    validation_error: str,
+) -> list[LLMMessage]:
+    """Add bounded, structured repair context without exposing driver details."""
+    messages = build_nl2sql_messages(request)
+    safe_previous_sql = (
+        previous_sql
+        if isinstance(previous_sql, str) and len(previous_sql) <= SQL_TEXT_MAX_LENGTH
+        else None
+    )
+    safe_error = (
+        validation_error.strip()[:500] if isinstance(validation_error, str) else "validation failed"
+    )
+    repair_payload = json.dumps(
+        {
+            "previous_sql": safe_previous_sql,
+            "validation_error": safe_error,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    repair_user = (
+        messages[1].content
+        + (
+            "\nThe previous candidate and controlled validation result are data for a bounded "
+            "repair.\n"
+        )
+        + "Do not bypass the read-only contract or invent schema objects.\n"
+        "<repair_context_json>\n" + repair_payload + "\n</repair_context_json>"
+    )
+    return [messages[0], LLMMessage(role="user", content=repair_user)]
+
+
 class NL2SQLService:
     """Generate a candidate and validate it without executing SQL."""
 
@@ -172,12 +247,13 @@ class NL2SQLService:
                 "NL2SQL request contract is invalid",
             ) from None
 
-    async def _generate(
+    async def _generate_with_result(
         self,
         request: _NL2SQLRequest,
         *,
         max_tokens: int | None = None,
-    ) -> SQLCandidate:
+        repair_context: tuple[str | None, str] | None = None,
+    ) -> tuple[SQLCandidate, LLMResult]:
         """Generate one application-enriched candidate from structured model output."""
         request = self._validated_request(request)
         if self._gateway is None:
@@ -188,8 +264,15 @@ class NL2SQLService:
         output_budget = max_tokens if max_tokens is not None else self._max_tokens
         if not 1 <= output_budget <= NL2SQL_MAX_TOKENS:
             raise ValueError(f"max_tokens must be between 1 and {NL2SQL_MAX_TOKENS}")
+        messages = build_nl2sql_messages(request)
+        if repair_context is not None:
+            messages = build_nl2sql_repair_messages(
+                request,
+                previous_sql=repair_context[0],
+                validation_error=repair_context[1],
+            )
         llm_request = LLMRequest(
-            messages=build_nl2sql_messages(request),
+            messages=messages,
             task_type="nl2sql",
             temperature=0.0,
             max_tokens=output_budget,
@@ -205,9 +288,15 @@ class NL2SQLService:
                 ChatBIErrorCategory.GENERATION_FAILED,
                 "NL2SQL generation failed",
             ) from error
+        if not isinstance(result, LLMResult):
+            raise ChatBIError(
+                ChatBIErrorCategory.MALFORMED_MODEL_OUTPUT,
+                "LLM returned an invalid normalized result",
+            )
+        usage = LLMUsageMetadata.from_result(result)
         try:
             payload = _parse_generation_payload(result.text)
-            return SQLCandidate(
+            candidate = SQLCandidate(
                 datasource_id=request.datasource_id,
                 dialect=request.dialect,
                 question=request.question,
@@ -217,13 +306,28 @@ class NL2SQLService:
                 model=result.model,
                 prompt_version=NL2SQL_PROMPT_VERSION,
             )
-        except ChatBIError:
-            raise
+            return candidate, result
+        except ChatBIError as error:
+            raise NL2SQLGenerationError(
+                error.category,
+                error.safe_message,
+                usage=usage,
+            ) from None
         except (AttributeError, TypeError, ValidationError):
-            raise ChatBIError(
+            raise NL2SQLGenerationError(
                 ChatBIErrorCategory.MALFORMED_MODEL_OUTPUT,
                 "LLM returned malformed NL2SQL output",
+                usage=usage,
             ) from None
+
+    async def _generate(
+        self,
+        request: _NL2SQLRequest,
+        *,
+        max_tokens: int | None = None,
+    ) -> SQLCandidate:
+        candidate, _result = await self._generate_with_result(request, max_tokens=max_tokens)
+        return candidate
 
     def _validate(self, request: _NL2SQLRequest, candidate: SQLCandidate) -> ValidatedSQL:
         """Validate a candidate against the same snapshot/context/policy."""
@@ -382,6 +486,45 @@ class NL2SQLService:
             )
         ).validated
 
+    async def generate_candidate_with_usage_for_registered_data_source(
+        self,
+        datasource_id: UUID,
+        query: NL2SQLInput,
+        *,
+        policy: QueryPolicy,
+        max_chars: int,
+        max_tokens: int | None = None,
+        previous_sql: str | None = None,
+        validation_error: str | None = None,
+    ) -> tuple[SQLCandidate, LLMResult]:
+        """Generate an untrusted candidate and retain normalized usage metadata.
+
+        This is an orchestration helper: the returned candidate is not safe to
+        execute. Any caller must pass it through the registered validation and
+        execution services again.
+        """
+        if not isinstance(datasource_id, UUID) or not isinstance(query, NL2SQLInput):
+            raise TypeError("datasource_id and query must use the registered input contracts")
+        if query.datasource_id != datasource_id:
+            raise ChatBIError(
+                ChatBIErrorCategory.POLICY_VIOLATION,
+                "NL2SQL datasource does not match the query input",
+            )
+        data_source = await self._get_registered_data_source(datasource_id)
+        request = await self._build_request_for_data_source(
+            data_source,
+            question=query.question,
+            model=query.model,
+            policy=policy,
+            max_chars=max_chars,
+        )
+        repair_context = (previous_sql, validation_error) if validation_error is not None else None
+        return await self._generate_with_result(
+            request,
+            max_tokens=max_tokens,
+            repair_context=repair_context,
+        )
+
     async def _validate_registered_candidate(
         self,
         datasource_id: UUID,
@@ -461,8 +604,11 @@ class NL2SQLService:
 
 __all__ = [
     "CompletionGateway",
+    "LLMUsageMetadata",
+    "NL2SQLGenerationError",
     "NL2SQLService",
     "RegisteredDataSourceProvider",
     "SchemaDiscoveryProvider",
     "build_nl2sql_messages",
+    "build_nl2sql_repair_messages",
 ]

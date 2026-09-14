@@ -1,7 +1,8 @@
 # ChatBI NL2SQL 与 SQL AST 安全边界
 
 本模块只负责把自然语言问题生成并验证为 `ValidatedSQL`。它不连接业务
-数据库执行 SQL，也不提供结果分析、MCP 或 Agent loop。
+数据库执行 SQL，也不提供 MCP；有界 ChatBI Agent 的结果分析与编排见
+[`chatbi-agent.md`](chatbi-agent.md)。
 
 ## 流程与信任边界
 
@@ -92,6 +93,7 @@ delimiter-safe escaping；标识符
 `chatbi nl2sql` 是开发者 smoke-test：它先从注册数据源执行只读 schema
 discovery，再生成和验证 SQL，输出安全的结构化结果；没有 SQL 执行 endpoint。
 当前执行 adapter 只接受同一 trusted validation path 产生的内部结果，见
-[`chatbi-sql-execution.md`](chatbi-sql-execution.md)；本模块仍没有参数绑定、结果行脱敏、MCP、Agent loop、
-NL2SQL 质量评测或前端 ChatBI 页面。AST 通过只表示结构和策略检查通过，不能
+[`chatbi-sql-execution.md`](chatbi-sql-execution.md)；本模块仍没有参数绑定、结果行脱敏、MCP、
+NL2SQL 质量评测或前端 ChatBI 页面；有界 Agent 的编排见
+[`chatbi-agent.md`](chatbi-agent.md)。AST 通过只表示结构和策略检查通过，不能
 证明业务问题一定得到正确回答。

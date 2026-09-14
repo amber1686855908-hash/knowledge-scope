@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     chatbi_allowed_schemas: list[str] = Field(default_factory=lambda: ["public"])
     chatbi_allow_views: bool = False
     chatbi_nl2sql_max_tokens: int = Field(default=512, ge=1, le=16_384)
+    chatbi_agent_max_sql_attempts: int = Field(default=2, ge=1, le=5)
+    chatbi_agent_max_repair_attempts: int = Field(default=1, ge=0, le=3)
+    chatbi_agent_max_steps: int = Field(default=6, ge=1, le=12)
+    chatbi_agent_max_llm_calls: int = Field(default=3, ge=1, le=8)
+    chatbi_analysis_max_tokens: int = Field(default=512, ge=1, le=16_384)
 
     @field_validator("chatbi_allowed_schemas")
     @classmethod

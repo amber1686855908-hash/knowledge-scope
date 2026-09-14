@@ -18,6 +18,7 @@ LLMTaskType = Literal[
     "evaluation",
     "entity_linking",
     "nl2sql",
+    "chatbi_analysis",
 ]
 
 LLM_TASK_TYPES: tuple[LLMTaskType, ...] = (
@@ -28,6 +29,7 @@ LLM_TASK_TYPES: tuple[LLMTaskType, ...] = (
     "evaluation",
     "entity_linking",
     "nl2sql",
+    "chatbi_analysis",
 )
 
 

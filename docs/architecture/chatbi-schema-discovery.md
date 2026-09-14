@@ -64,4 +64,5 @@ schema discovery 结果是一次实时快照，不在 KnowledgeScope 数据库�
 
 本阶段没有 schema snapshot 数据库表，discovery 本身不执行 SQL。NL2SQL 生成与 SQL AST 校验的边界见
 [`chatbi-nl2sql-safety.md`](chatbi-nl2sql-safety.md)，只读 SQL 执行见
-[`chatbi-sql-execution.md`](chatbi-sql-execution.md)；MCP 和 Agent loop 仍未实现。
+[`chatbi-sql-execution.md`](chatbi-sql-execution.md)，有界 ChatBI Agent 见
+[`chatbi-agent.md`](chatbi-agent.md)；MCP 仍未实现。

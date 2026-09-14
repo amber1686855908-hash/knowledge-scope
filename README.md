@@ -53,6 +53,8 @@ text、image、table、formula 都可以作为 Evidence 来源，并拥有多个
 
 已注册的数据源可以通过 `knowledgescope chatbi execute <datasource_id> <sql>` 执行受策略约束的只读查询，返回有界、JSON-safe 的表格结果和执行审计信息。
 
+已注册的数据源也可以通过 `knowledgescope chatbi ask <datasource_id> <question>` 完成有界的 SQL 生成、只读执行和结果分析。
+
 ## 系统架构
 
 ```mermaid
@@ -174,6 +176,7 @@ KnowledgeScope/
 | 多模态 Evidence | [Multimodal Evidence](docs/architecture/multimodal-evidence.md) |
 | ChatBI schema discovery | [Schema Discovery](docs/architecture/chatbi-schema-discovery.md) |
 | ChatBI SQL execution | [SQL Execution](docs/architecture/chatbi-sql-execution.md) |
+| ChatBI agent loop | [ChatBI Agent](docs/architecture/chatbi-agent.md) |
 | 检索评测 | [Retrieval Evaluation](docs/benchmarks/a4-5-retrieval-evaluation.md) |
 | 开发记录 | [Project History](docs/development/project-history.md) |
 
@@ -181,7 +184,7 @@ KnowledgeScope/
 
 路线图列出尚未进入产品表面的工作：
 
-- MCP、Analytics Agent 和结果分析；
+- MCP 和面向更复杂任务的 Agent 工具循环；
 - 更完整的 GraphRAG 与跨文档实体链接评测；
 - 视觉 embedding、OCR/LLM caption 规模化生成，以及更严格的多模态质量评测。
 

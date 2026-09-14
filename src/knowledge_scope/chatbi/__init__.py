@@ -1,5 +1,15 @@
 """ChatBI / NL2SQL domain contracts and datasource metadata foundation."""
 
+from .agent import (
+    CHATBI_ANALYSIS_PROMPT_VERSION,
+    ChatBIAgentLimits,
+    ChatBIAgentService,
+    ChatBIAnalysisPayload,
+    ChatBIResult,
+    ChatBITraceEvent,
+    ChatBIUsageSummary,
+    build_chatbi_analysis_messages,
+)
 from .credentials import (
     CredentialResolver,
     EnvironmentCredentialResolver,
@@ -27,6 +37,7 @@ from .nl2sql import (
     RegisteredDataSourceProvider,
     SchemaDiscoveryProvider,
     build_nl2sql_messages,
+    build_nl2sql_repair_messages,
 )
 from .nl2sql_models import (
     NL2SQL_MAX_TOKENS,
@@ -66,9 +77,16 @@ from .schemas import (
 from .sql_validation import policy_fingerprint
 
 __all__ = [
+    "CHATBI_ANALYSIS_PROMPT_VERSION",
     "NL2SQL_MAX_TOKENS",
+    "ChatBIAgentLimits",
+    "ChatBIAgentService",
+    "ChatBIAnalysisPayload",
     "ChatBIError",
     "ChatBIErrorCategory",
+    "ChatBIResult",
+    "ChatBITraceEvent",
+    "ChatBIUsageSummary",
     "ColumnMetadata",
     "CredentialResolver",
     "DataSource",
@@ -109,7 +127,9 @@ __all__ = [
     "SchemaUniqueConstraint",
     "SecretReferenceResolver",
     "SemanticSchemaContext",
+    "build_chatbi_analysis_messages",
     "build_nl2sql_messages",
+    "build_nl2sql_repair_messages",
     "build_safe_search_path_statement",
     "build_semantic_schema_context",
     "create_postgres_schema_discovery_service",
