@@ -13,7 +13,6 @@ from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from knowledge_scope import __version__
 from knowledge_scope.chatbi import (
@@ -21,7 +20,6 @@ from knowledge_scope.chatbi import (
     ChatBIAgentService,
     ChatBIError,
     ChatBIErrorCategory,
-    DataSource,
     EnvironmentCredentialResolver,
     NL2SQLInput,
     NL2SQLService,
@@ -31,7 +29,7 @@ from knowledge_scope.chatbi import (
     redact_sql_literals,
 )
 from knowledge_scope.chatbi.discovery import create_postgres_schema_discovery_service
-from knowledge_scope.chatbi.models import ChatBIDataSourceRecord
+from knowledge_scope.chatbi.registry import DatabaseDataSourceProvider
 from knowledge_scope.chunking.service import ChunkingError, chunk_document_by_id
 from knowledge_scope.documents.models import DOCUMENT_STATUS_REGISTERED, Document
 from knowledge_scope.documents.registration import (
@@ -289,6 +287,15 @@ def build_parser() -> argparse.ArgumentParser:
     chatbi_ask.add_argument("question")
     chatbi_ask.add_argument("--max-chars", type=_positive_int)
     chatbi_ask.add_argument("--model")
+    mcp = subparsers.add_parser(
+        "mcp",
+        help="run the local MCP server",
+    )
+    mcp_actions = mcp.add_subparsers(dest="mcp_action", required=True)
+    mcp_actions.add_parser(
+        "serve",
+        help="serve the high-level ChatBI MCP tools over local stdio",
+    )
     llm_smoke_test = subparsers.add_parser(
         "llm-smoke-test",
         help="call the configured OpenAI-compatible LLM provider once",
@@ -1249,36 +1256,6 @@ def _run_health() -> int:
     return 0
 
 
-def _data_source_from_record(record: ChatBIDataSourceRecord) -> DataSource:
-    return DataSource.model_validate(
-        {
-            "id": record.id,
-            "display_name": record.display_name,
-            "dialect": record.dialect,
-            "enabled": record.enabled,
-            "connection_ref": record.connection_ref,
-            "default_database": record.default_database,
-            "default_schema": record.default_schema,
-            "created_at": record.created_at,
-            "updated_at": record.updated_at,
-        }
-    )
-
-
-class _RegisteredDataSourceProvider:
-    """Load datasource metadata from the KnowledgeScope registry."""
-
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._session_factory = session_factory
-
-    async def get(self, datasource_id: UUID) -> DataSource | None:
-        async with self._session_factory() as session:
-            record = await session.scalar(
-                select(ChatBIDataSourceRecord).where(ChatBIDataSourceRecord.id == datasource_id)
-            )
-        return _data_source_from_record(record) if record is not None else None
-
-
 async def _discover_chatbi_schema_async(
     args: argparse.Namespace,
     settings: Settings,
@@ -1287,7 +1264,7 @@ async def _discover_chatbi_schema_async(
     engine = create_database_engine(settings)
     try:
         session_factory = create_session_factory(engine)
-        data_source = await _RegisteredDataSourceProvider(session_factory).get(args.datasource_id)
+        data_source = await DatabaseDataSourceProvider(session_factory).get(args.datasource_id)
         if data_source is None:
             raise ChatBIError(
                 ChatBIErrorCategory.DATASOURCE_NOT_FOUND,
@@ -1352,7 +1329,7 @@ async def _generate_chatbi_sql_async(
         service = NL2SQLService(
             gateway,
             schema_discovery=discovery,
-            data_source_provider=_RegisteredDataSourceProvider(session_factory),
+            data_source_provider=DatabaseDataSourceProvider(session_factory),
             max_tokens=args.max_tokens or settings.chatbi_nl2sql_max_tokens,
         )
         result = await service.generate_for_registered_data_source(
@@ -1424,7 +1401,7 @@ async def _execute_chatbi_sql_async(
         validation = NL2SQLService(
             None,
             schema_discovery=discovery,
-            data_source_provider=_RegisteredDataSourceProvider(session_factory),
+            data_source_provider=DatabaseDataSourceProvider(session_factory),
         )
         execution = SQLExecutionService(
             validation,
@@ -1494,7 +1471,7 @@ async def _ask_chatbi_async(
         generation = NL2SQLService(
             gateway,
             schema_discovery=discovery,
-            data_source_provider=_RegisteredDataSourceProvider(session_factory),
+            data_source_provider=DatabaseDataSourceProvider(session_factory),
             max_tokens=settings.chatbi_nl2sql_max_tokens,
         )
         execution = SQLExecutionService(
@@ -1552,6 +1529,26 @@ def _run_chatbi_ask(args: argparse.Namespace) -> int:
         return 1
     print("chatbi_ask_status: complete")
     print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _run_mcp_serve() -> int:
+    """Run the local MCP stdio server without writing non-protocol stdout."""
+    from knowledge_scope.mcp.server import run_mcp_stdio
+
+    try:
+        settings = get_settings()
+        asyncio.run(run_mcp_stdio(settings))
+    except KeyboardInterrupt:
+        return 130
+    except (ChatBIError, ValidationError, ValueError, OSError):
+        print("mcp_status: failed", file=sys.stderr)
+        print("error: MCP server failed to start", file=sys.stderr)
+        return 1
+    except Exception:
+        print("mcp_status: failed", file=sys.stderr)
+        print("error: MCP server failed", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -2990,6 +2987,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_chatbi_execute(args)
     if args.command == "chatbi" and args.chatbi_action == "ask":
         return _run_chatbi_ask(args)
+    if args.command == "mcp" and args.mcp_action == "serve":
+        return _run_mcp_serve()
     if args.command == "llm-smoke-test":
         return _run_llm_smoke_test(args)
     if args.command == "parse-document":

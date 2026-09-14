@@ -55,6 +55,8 @@ text、image、table、formula 都可以作为 Evidence 来源，并拥有多个
 
 已注册的数据源也可以通过 `knowledgescope chatbi ask <datasource_id> <question>` 完成有界的 SQL 生成、只读执行和结果分析。
 
+本地 MCP 客户端可以通过 stdio 调用 `chatbi_ask` 和 `chatbi_schema`，复用相同的注册数据源、Schema Discovery 与只读 ChatBI 流程。
+
 ## 系统架构
 
 ```mermaid
@@ -177,6 +179,7 @@ KnowledgeScope/
 | ChatBI schema discovery | [Schema Discovery](docs/architecture/chatbi-schema-discovery.md) |
 | ChatBI SQL execution | [SQL Execution](docs/architecture/chatbi-sql-execution.md) |
 | ChatBI agent loop | [ChatBI Agent](docs/architecture/chatbi-agent.md) |
+| 本地 MCP 服务 | [MCP 服务](docs/architecture/mcp-server.md) |
 | 检索评测 | [Retrieval Evaluation](docs/benchmarks/a4-5-retrieval-evaluation.md) |
 | 开发记录 | [Project History](docs/development/project-history.md) |
 
@@ -184,7 +187,7 @@ KnowledgeScope/
 
 路线图列出尚未进入产品表面的工作：
 
-- MCP 和面向更复杂任务的 Agent 工具循环；
+- 面向更复杂任务的 Agent 工具循环；
 - 更完整的 GraphRAG 与跨文档实体链接评测；
 - 视觉 embedding、OCR/LLM caption 规模化生成，以及更严格的多模态质量评测。
 

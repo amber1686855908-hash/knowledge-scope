@@ -202,6 +202,18 @@ def _quote_identifier(identifier: str) -> str:
 
 _REDACTION_FALLBACK = "<sql-redaction-unavailable>"
 
+# SQLGlot uses dedicated nodes for PostgreSQL string syntaxes that are not
+# represented by ``exp.Literal``.  Keep this list explicit so a newly
+# encountered literal node can never silently pass through the audit redactor.
+_REDACTABLE_LITERAL_TYPES = (
+    exp.RawString,
+    exp.ByteString,
+    exp.BitString,
+    exp.HexString,
+    exp.National,
+    exp.UnicodeString,
+)
+
 
 def redact_sql_literals(sql: str) -> str:
     """Return a safe audit/display form without retaining literal values.
@@ -218,13 +230,15 @@ def redact_sql_literals(sql: str) -> str:
             return _REDACTION_FALLBACK
         statement = statements[0]
         for node in tuple(statement.walk()):
-            if isinstance(node, exp.Literal):
+            if isinstance(node, exp.Boolean):
+                node.replace(exp.Boolean(this=False))
+            elif isinstance(node, exp.Literal):
                 replacement = (
                     exp.Literal.string("<redacted>") if node.is_string else exp.Literal.number("0")
                 )
                 node.replace(replacement)
-            elif isinstance(node, exp.Boolean):
-                node.replace(exp.Boolean(this=False))
+            elif isinstance(node, _REDACTABLE_LITERAL_TYPES):
+                node.replace(exp.Literal.string("<redacted>"))
         rendered = statement.sql(dialect="postgres", comments=False).strip()
         return rendered if rendered else _REDACTION_FALLBACK
     except Exception:

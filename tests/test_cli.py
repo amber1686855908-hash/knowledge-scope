@@ -135,6 +135,13 @@ def test_chatbi_ask_parser_accepts_question_and_model() -> None:
     assert args.model == "deepseek-chat"
 
 
+def test_mcp_serve_parser_uses_local_stdio_command() -> None:
+    args = build_parser().parse_args(["mcp", "serve"])
+
+    assert args.command == "mcp"
+    assert args.mcp_action == "serve"
+
+
 def test_chatbi_sql_cli_display_redacts_nested_sql_literals() -> None:
     displayed = _redact_sql_display(
         {
