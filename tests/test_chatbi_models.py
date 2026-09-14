@@ -94,6 +94,10 @@ def test_query_policy_has_conservative_defaults_and_bounds() -> None:
 
     assert policy.read_only is True
     assert policy.max_rows == 1_000
+    assert policy.max_result_bytes == 4_000_000
+    assert policy.max_cell_bytes == 1_000_000
+    assert policy.max_nested_value_depth == 32
+    assert policy.max_collection_items == 10_000
     assert policy.statement_timeout_ms == 30_000
     assert policy.allowed_schemas == ("public",)
     assert policy.allow_views is False
@@ -101,6 +105,10 @@ def test_query_policy_has_conservative_defaults_and_bounds() -> None:
 
     for payload in (
         {"max_rows": 0},
+        {"max_result_bytes": 1},
+        {"max_cell_bytes": 0},
+        {"max_nested_value_depth": 0},
+        {"max_collection_items": 0},
         {"statement_timeout_ms": 99},
         {"read_only": False},
         {"allowed_schemas": []},
@@ -116,6 +124,10 @@ def test_query_policy_reads_only_the_chatbi_settings() -> None:
     settings = Settings(
         _env_file=None,
         chatbi_max_rows=250,
+        chatbi_max_result_bytes=2_000_000,
+        chatbi_max_cell_bytes=500_000,
+        chatbi_max_nested_value_depth=16,
+        chatbi_max_collection_items=5_000,
         chatbi_statement_timeout_ms=5_000,
         chatbi_allowed_schemas=["analytics", "public"],
         chatbi_allow_views=True,
@@ -124,6 +136,10 @@ def test_query_policy_reads_only_the_chatbi_settings() -> None:
     policy = default_query_policy(settings)
 
     assert policy.max_rows == 250
+    assert policy.max_result_bytes == 2_000_000
+    assert policy.max_cell_bytes == 500_000
+    assert policy.max_nested_value_depth == 16
+    assert policy.max_collection_items == 5_000
     assert policy.statement_timeout_ms == 5_000
     assert policy.allowed_schemas == ("analytics", "public")
     assert policy.allow_views is True

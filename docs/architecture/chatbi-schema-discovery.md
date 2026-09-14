@@ -62,5 +62,6 @@ schema discovery 结果是一次实时快照，不在 KnowledgeScope 数据库�
   对外只返回固定的安全消息；
 - `tests/fixtures/chatbi_demo.sql` 是隔离的 demo schema，集成测试只允许读取其 catalog 元数据。
 
-本阶段没有 schema snapshot 数据库表，也不执行 SQL。NL2SQL 生成与 SQL AST 校验的边界见
-[`chatbi-nl2sql-safety.md`](chatbi-nl2sql-safety.md)；SQL 执行、MCP 和 Agent loop 仍未实现。
+本阶段没有 schema snapshot 数据库表，discovery 本身不执行 SQL。NL2SQL 生成与 SQL AST 校验的边界见
+[`chatbi-nl2sql-safety.md`](chatbi-nl2sql-safety.md)，只读 SQL 执行见
+[`chatbi-sql-execution.md`](chatbi-sql-execution.md)；MCP 和 Agent loop 仍未实现。

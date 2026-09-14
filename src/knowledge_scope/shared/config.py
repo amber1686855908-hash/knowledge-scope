@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     unified_rerank_text_max_chars: int = Field(default=6_000, ge=1, le=20_000)
     unified_failure_mode: Literal["strict", "degraded"] = "degraded"
     chatbi_max_rows: int = Field(default=1_000, ge=1, le=100_000)
+    chatbi_max_result_bytes: int = Field(default=4_000_000, ge=2, le=100_000_000)
+    chatbi_max_cell_bytes: int = Field(default=1_000_000, ge=1, le=100_000_000)
+    chatbi_max_nested_value_depth: int = Field(default=32, ge=1, le=256)
+    chatbi_max_collection_items: int = Field(default=10_000, ge=1, le=1_000_000)
     chatbi_statement_timeout_ms: int = Field(default=30_000, ge=100, le=600_000)
     chatbi_schema_connection_timeout_seconds: float = Field(default=10.0, gt=0)
     chatbi_schema_context_max_chars: int = Field(default=24_000, ge=1, le=1_000_000)

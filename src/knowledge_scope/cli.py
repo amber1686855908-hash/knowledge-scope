@@ -20,9 +20,13 @@ from knowledge_scope.chatbi import (
     ChatBIError,
     ChatBIErrorCategory,
     DataSource,
+    EnvironmentCredentialResolver,
     NL2SQLInput,
     NL2SQLService,
+    PostgresExecutionAdapter,
+    SQLExecutionService,
     default_query_policy,
+    redact_sql_literals,
 )
 from knowledge_scope.chatbi.discovery import create_postgres_schema_discovery_service
 from knowledge_scope.chatbi.models import ChatBIDataSourceRecord
@@ -268,6 +272,13 @@ def build_parser() -> argparse.ArgumentParser:
     chatbi_nl2sql.add_argument("--max-chars", type=_positive_int)
     chatbi_nl2sql.add_argument("--max-tokens", type=_positive_int)
     chatbi_nl2sql.add_argument("--model")
+    chatbi_execute = chatbi_actions.add_parser(
+        "execute",
+        help="execute one bounded read-only PostgreSQL query",
+    )
+    chatbi_execute.add_argument("datasource_id", type=UUID)
+    chatbi_execute.add_argument("sql")
+    chatbi_execute.add_argument("--max-chars", type=_positive_int)
     llm_smoke_test = subparsers.add_parser(
         "llm-smoke-test",
         help="call the configured OpenAI-compatible LLM provider once",
@@ -1373,6 +1384,80 @@ def _run_chatbi_nl2sql(args: argparse.Namespace) -> int:
         return 130
 
     print("chatbi_nl2sql_status: complete")
+    print(json.dumps(_redact_sql_display(output), ensure_ascii=False, indent=2))
+    return 0
+
+
+def _redact_sql_display(value: object, *, field_name: str | None = None) -> object:
+    """Remove SQL literal values from nested CLI display data."""
+    if field_name in {"sql", "original_sql", "normalized_sql"} and isinstance(value, str):
+        return redact_sql_literals(value)
+    if isinstance(value, dict):
+        return {key: _redact_sql_display(item, field_name=key) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_sql_display(item) for item in value]
+    return value
+
+
+async def _execute_chatbi_sql_async(
+    args: argparse.Namespace,
+    settings: Settings,
+) -> dict[str, object]:
+    """Execute raw SQL only through registered lookup and trusted validation."""
+    engine = create_database_engine(settings)
+    try:
+        session_factory = create_session_factory(engine)
+        discovery = create_postgres_schema_discovery_service(
+            connection_timeout_seconds=settings.chatbi_schema_connection_timeout_seconds,
+            statement_timeout_ms=settings.chatbi_statement_timeout_ms,
+        )
+        validation = NL2SQLService(
+            None,
+            schema_discovery=discovery,
+            data_source_provider=_RegisteredDataSourceProvider(session_factory),
+        )
+        execution = SQLExecutionService(
+            validation,
+            EnvironmentCredentialResolver(),
+            PostgresExecutionAdapter(
+                connection_timeout_seconds=settings.chatbi_schema_connection_timeout_seconds,
+                statement_timeout_ms=settings.chatbi_statement_timeout_ms,
+            ),
+        )
+        outcome = await execution.execute_sql_for_registered_data_source(
+            args.datasource_id,
+            args.sql,
+            policy=default_query_policy(settings),
+            max_chars=args.max_chars or settings.chatbi_schema_context_max_chars,
+        )
+        return outcome.model_dump(mode="json")
+    finally:
+        await engine.dispose()
+
+
+def _run_chatbi_execute(args: argparse.Namespace) -> int:
+    """Run one bounded read-only query and print controlled result/audit data."""
+    try:
+        settings = get_settings()
+        output = asyncio.run(_execute_chatbi_sql_async(args, settings))
+    except ChatBIError as error:
+        print("chatbi_execute_status: failed", file=sys.stderr)
+        print(f"error: {error.safe_message}", file=sys.stderr)
+        return 1
+    except (ValidationError, ValueError, OSError):
+        print("chatbi_execute_status: failed", file=sys.stderr)
+        print("error: SQL execution failed", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("chatbi_execute_status: interrupted", file=sys.stderr)
+        return 130
+
+    result = output.get("result")
+    if not isinstance(result, dict) or result.get("state") != "succeeded":
+        print("chatbi_execute_status: failed", file=sys.stderr)
+        print(json.dumps(output, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 1
+    print("chatbi_execute_status: complete")
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 
@@ -2808,6 +2893,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_chatbi_schema(args)
     if args.command == "chatbi" and args.chatbi_action == "nl2sql":
         return _run_chatbi_nl2sql(args)
+    if args.command == "chatbi" and args.chatbi_action == "execute":
+        return _run_chatbi_execute(args)
     if args.command == "llm-smoke-test":
         return _run_llm_smoke_test(args)
     if args.command == "parse-document":

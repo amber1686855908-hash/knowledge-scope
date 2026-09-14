@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
@@ -61,6 +62,15 @@ class RegisteredDataSourceProvider(Protocol):
 
     async def get(self, datasource_id: UUID) -> DataSource | None:
         """Return the registered datasource, without accepting caller metadata."""
+
+
+@dataclass(frozen=True, slots=True)
+class _RegisteredValidation:
+    """Trusted, request-scoped validation state used by execution internally."""
+
+    data_source: DataSource
+    request: _NL2SQLRequest
+    validated: ValidatedSQL
 
 
 def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -136,7 +146,7 @@ class NL2SQLService:
 
     def __init__(
         self,
-        gateway: CompletionGateway,
+        gateway: CompletionGateway | None,
         *,
         schema_discovery: SchemaDiscoveryProvider | None = None,
         data_source_provider: RegisteredDataSourceProvider | None = None,
@@ -170,6 +180,11 @@ class NL2SQLService:
     ) -> SQLCandidate:
         """Generate one application-enriched candidate from structured model output."""
         request = self._validated_request(request)
+        if self._gateway is None:
+            raise ChatBIError(
+                ChatBIErrorCategory.GENERATION_FAILED,
+                "NL2SQL generation requires a configured LLM gateway",
+            )
         output_budget = max_tokens if max_tokens is not None else self._max_tokens
         if not 1 <= output_budget <= NL2SQL_MAX_TOKENS:
             raise ValueError(f"max_tokens must be between 1 and {NL2SQL_MAX_TOKENS}")
@@ -358,6 +373,24 @@ class NL2SQLService:
         an already validated result.  The returned value remains an audit result,
         not an authorization capability.
         """
+        return (
+            await self._validate_registered_candidate(
+                datasource_id,
+                candidate,
+                policy=policy,
+                max_chars=max_chars,
+            )
+        ).validated
+
+    async def _validate_registered_candidate(
+        self,
+        datasource_id: UUID,
+        candidate: SQLCandidate,
+        *,
+        policy: QueryPolicy,
+        max_chars: int,
+    ) -> _RegisteredValidation:
+        """Build trusted context and validate one untrusted candidate for execution."""
         if not isinstance(datasource_id, UUID) or not isinstance(candidate, SQLCandidate):
             raise TypeError("datasource_id and candidate must use the registered input contracts")
         if candidate.datasource_id != datasource_id:
@@ -373,7 +406,57 @@ class NL2SQLService:
             policy=policy,
             max_chars=max_chars,
         )
-        return self._validate(request, candidate)
+        return _RegisteredValidation(
+            data_source=data_source,
+            request=request,
+            validated=self._validate(request, candidate),
+        )
+
+    async def _validate_raw_registered_sql(
+        self,
+        datasource_id: UUID,
+        sql: str,
+        *,
+        policy: QueryPolicy,
+        max_chars: int,
+    ) -> _RegisteredValidation:
+        """Turn developer-supplied SQL into an untrusted candidate after discovery.
+
+        The candidate metadata is application-generated from the fresh trusted
+        request.  The SQL still goes through the same AST validator as model
+        output; this helper does not create an execution-ready value.
+        """
+        if not isinstance(datasource_id, UUID) or not isinstance(sql, str):
+            raise TypeError("datasource_id and sql must use the registered input contracts")
+        data_source = await self._get_registered_data_source(datasource_id)
+        request = await self._build_request_for_data_source(
+            data_source,
+            question="developer supplied SQL",
+            model="developer-input",
+            policy=policy,
+            max_chars=max_chars,
+        )
+        try:
+            candidate = SQLCandidate(
+                datasource_id=datasource_id,
+                dialect=request.dialect,
+                question=request.question,
+                sql=sql,
+                context_fingerprint=request.schema_snapshot.fingerprint,
+                provider="developer-input",
+                model="developer-input",
+                prompt_version=NL2SQL_PROMPT_VERSION,
+            )
+        except ValidationError:
+            raise ChatBIError(
+                ChatBIErrorCategory.INVALID_QUERY,
+                "SQL input does not satisfy the query candidate contract",
+            ) from None
+        return _RegisteredValidation(
+            data_source=data_source,
+            request=request,
+            validated=self._validate(request, candidate),
+        )
 
 
 __all__ = [

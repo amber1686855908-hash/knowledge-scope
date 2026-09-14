@@ -9,7 +9,17 @@ from enum import StrEnum
 from typing import Final, Self
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    field_validator,
+    model_validator,
+)
 
 from .errors import ChatBIErrorCategory
 from .policy import SQLDialect
@@ -23,7 +33,15 @@ SQL_TEXT_MAX_LENGTH: Final = 100_000
 # is deliberately not a database URL and therefore cannot contain a password.
 _CONNECTION_REF_PATTERN = re.compile(r"^(?:env|secret):[A-Za-z][A-Za-z0-9_.:/-]{0,247}$")
 
-type ScalarValue = str | int | float | bool | None
+type ScalarValue = (
+    StrictStr
+    | StrictInt
+    | StrictFloat
+    | StrictBool
+    | list[ScalarValue]
+    | dict[str, ScalarValue]
+    | None
+)
 
 
 def _trimmed_required(value: str, field_name: str) -> str:
@@ -72,6 +90,13 @@ class QueryLifecycleState(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class QueryTruncationReason(StrEnum):
+    """Why a successful result stopped at a complete row boundary."""
+
+    ROW_LIMIT = "row_limit"
+    PAYLOAD_BYTES = "payload_bytes"
 
 
 class DataSourceCreate(_ChatBIModel):
@@ -244,7 +269,7 @@ class QueryAuditRecord(_ChatBIModel):
 
 
 class QueryExecutionResult(_ChatBIModel):
-    """Normalized tabular result contract for a future execution adapter."""
+    """JSON-safe bounded tabular result returned by a SQL execution adapter."""
 
     query_id: UUID
     datasource_id: UUID
@@ -253,6 +278,8 @@ class QueryExecutionResult(_ChatBIModel):
     rows: list[list[ScalarValue]]
     row_count: int = Field(ge=0)
     truncated: StrictBool = False
+    truncation_reason: QueryTruncationReason | None = None
+    max_rows: int = Field(default=1_000, ge=1)
     duration_ms: float = Field(ge=0)
     completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     error_category: ChatBIErrorCategory | None = None
@@ -263,11 +290,21 @@ class QueryExecutionResult(_ChatBIModel):
         if self.state not in {
             QueryLifecycleState.SUCCEEDED,
             QueryLifecycleState.FAILED,
+            QueryLifecycleState.REJECTED,
             QueryLifecycleState.CANCELLED,
         }:
             raise ValueError("execution results must use a terminal lifecycle state")
         if self.row_count != len(self.rows):
             raise ValueError("row_count must equal the number of materialized rows")
+        if self.row_count > self.max_rows:
+            raise ValueError("row_count cannot exceed max_rows")
+        if self.state is QueryLifecycleState.SUCCEEDED:
+            if self.truncated and self.truncation_reason is None:
+                raise ValueError("truncated successful results require a truncation reason")
+            if not self.truncated and self.truncation_reason is not None:
+                raise ValueError("complete successful results cannot have a truncation reason")
+        elif self.truncated or self.truncation_reason is not None:
+            raise ValueError("non-successful results cannot contain truncation metadata")
         expected_width = len(self.columns)
         if any(len(row) != expected_width for row in self.rows):
             raise ValueError("every row must match the column count")
@@ -275,8 +312,16 @@ class QueryExecutionResult(_ChatBIModel):
             self.error_category is not None or self.error_message is not None
         ):
             raise ValueError("successful results cannot contain an error")
-        if self.state is QueryLifecycleState.FAILED and self.error_category is None:
-            raise ValueError("failed results must include an error category")
+        if (
+            self.state
+            in {
+                QueryLifecycleState.REJECTED,
+                QueryLifecycleState.FAILED,
+                QueryLifecycleState.CANCELLED,
+            }
+            and self.error_category is None
+        ):
+            raise ValueError("rejected, failed, and cancelled results require an error category")
         if self.error_message is not None and not self.error_message.strip():
             raise ValueError("error_message must not be blank")
         return self

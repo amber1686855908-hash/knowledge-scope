@@ -91,6 +91,7 @@ delimiter-safe escaping；标识符
 
 `chatbi nl2sql` 是开发者 smoke-test：它先从注册数据源执行只读 schema
 discovery，再生成和验证 SQL，输出安全的结构化结果；没有 SQL 执行 endpoint。
-当前没有参数绑定、SQL execution adapter、结果行脱敏、MCP、Agent loop、
+当前执行 adapter 只接受同一 trusted validation path 产生的内部结果，见
+[`chatbi-sql-execution.md`](chatbi-sql-execution.md)；本模块仍没有参数绑定、结果行脱敏、MCP、Agent loop、
 NL2SQL 质量评测或前端 ChatBI 页面。AST 通过只表示结构和策略检查通过，不能
 证明业务问题一定得到正确回答。
