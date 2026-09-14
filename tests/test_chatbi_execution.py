@@ -291,6 +291,46 @@ def test_redact_sql_literals_preserves_structure_and_fails_safe() -> None:
     assert redact_sql_literals("SELECT 'unterminated") == "<sql-redaction-unavailable>"
 
 
+@pytest.mark.parametrize(
+    ("sql", "secret_values"),
+    [
+        ("SELECT 'normal-secret', 987654, TRUE", ("normal-secret", "987654", "TRUE")),
+        ("SELECT $$dollar-secret$$, $tag$tagged-secret$tag$", ("dollar-secret", "tagged-secret")),
+        (
+            r"SELECT E'escape-secret\\n', B'101010', X'DEADBEEF'",
+            ("escape-secret", "101010", "DEADBEEF"),
+        ),
+        ("SELECT N'national-secret', U&'unicode-secret'", ("national-secret", "unicode-secret")),
+        (
+            "WITH filtered AS (SELECT * FROM public.sales WHERE note = 'cte-secret') "
+            "SELECT s.region FROM filtered AS s JOIN public.customers AS c ON c.id = 42 "
+            "UNION SELECT 'union-secret'",
+            ("cte-secret", "42", "union-secret"),
+        ),
+        (
+            "SELECT COALESCE(NULLIF('nested-secret', 'other-secret'), 'fallback-secret')",
+            ("secret",),
+        ),
+    ],
+)
+def test_redact_sql_literals_covers_postgres_literal_forms(
+    sql: str,
+    secret_values: tuple[str, ...],
+) -> None:
+    redacted = redact_sql_literals(sql)
+
+    assert redacted != "<sql-redaction-unavailable>"
+    for secret in secret_values:
+        assert secret not in redacted
+
+
+def test_redact_sql_literals_fails_closed_for_malformed_sql() -> None:
+    redacted = redact_sql_literals("SELECT $$malformed-secret")
+
+    assert redacted == "<sql-redaction-unavailable>"
+    assert "malformed-secret" not in redacted
+
+
 @pytest.mark.anyio
 async def test_raw_sql_path_builds_candidate_after_discovery_and_rejects_write() -> None:
     service, _discovery, adapter, _resolver = _service()
