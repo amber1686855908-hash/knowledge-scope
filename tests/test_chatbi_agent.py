@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from knowledge_scope.chatbi import (
+    CHATBI_ANALYSIS_PROMPT_VERSION,
     ChatBIAgentLimits,
     ChatBIAgentService,
     ChatBIError,
@@ -287,6 +288,29 @@ def test_analysis_prompt_encodes_question_and_result_as_deterministic_json() -> 
     assert "schema" not in payload
 
 
+def test_analysis_prompt_requires_concise_json_without_internal_narration() -> None:
+    result = _execution_result(rows=[["42"]]).result
+
+    messages = build_chatbi_analysis_messages(
+        "查询结果",
+        result,
+        redacted_sql="SELECT 0 AS answer",
+    )
+
+    system = messages[0].content
+    system_lower = system.lower()
+    assert CHATBI_ANALYSIS_PROMPT_VERSION == "a5.5-v2"
+    assert CHATBI_ANALYSIS_PROMPT_VERSION in system
+    assert "keep the answer concise" in system_lower
+    assert "valid json only" in system_lower
+    assert "internal reasoning" in system_lower
+    assert "sql generation" in system_lower
+    assert "entire result table" in system_lower
+    assert "row_count is zero" in system_lower
+    assert "truncated" in system_lower
+    assert "extra fields" in system_lower
+
+
 @pytest.mark.anyio
 async def test_agent_uses_registered_nl2sql_discovery_path_before_execution() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
@@ -357,6 +381,10 @@ async def test_agent_uses_registered_nl2sql_discovery_path_before_execution() ->
     assert result.usage.provider_attempts == 2
     assert result.usage.input_tokens == 16
     assert result.usage.output_tokens == 8
+    assert gateway.requests[0].max_tokens == 1024
+    assert gateway.requests[0].reasoning is None
+    assert gateway.requests[1].max_tokens == 1024
+    assert gateway.requests[1].reasoning == "disabled"
 
 
 @pytest.mark.anyio
