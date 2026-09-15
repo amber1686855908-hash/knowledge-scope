@@ -68,6 +68,14 @@ from knowledge_scope.evaluation.chatbi_evaluation import (
 from knowledge_scope.evaluation.chatbi_evaluation import (
     DEFAULT_OUTPUT as DEFAULT_CHATBI_EVAL_OUTPUT,
 )
+from knowledge_scope.evaluation.chatbi_evaluation_v2_provider import (
+    DEFAULT_DATASET_V2,
+    DEFAULT_FIXTURE_PATH_V2,
+    DEFAULT_PROVIDER_OUTPUT_V2,
+    V2ProviderBenchmarkError,
+    preflight_v2_provider_benchmark,
+    run_v2_provider_benchmark,
+)
 from knowledge_scope.evaluation.embedding_benchmark import (
     DEFAULT_CHUNK_INDEX,
     DEFAULT_DATASET,
@@ -332,6 +340,24 @@ def build_parser() -> argparse.ArgumentParser:
     chatbi_eval.add_argument("--output", type=Path, default=DEFAULT_CHATBI_EVAL_OUTPUT)
     chatbi_eval.add_argument("--max-chars", type=_positive_int)
     chatbi_eval.add_argument("--max-cases", type=_positive_int)
+    chatbi_eval_v2_provider = chatbi_actions.add_parser(
+        "eval-v2-provider",
+        help="preflight or run the frozen ChatBI v2 DEV provider evaluation",
+    )
+    chatbi_eval_v2_provider.add_argument(
+        "--split",
+        choices=("dev", "test"),
+        required=True,
+        help="only dev is currently enabled; test is kept frozen",
+    )
+    chatbi_eval_v2_provider.add_argument(
+        "--preflight",
+        action="store_true",
+        help="run all local checks without constructing or calling an LLM provider",
+    )
+    chatbi_eval_v2_provider.add_argument("--dataset", type=Path, default=DEFAULT_DATASET_V2)
+    chatbi_eval_v2_provider.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE_PATH_V2)
+    chatbi_eval_v2_provider.add_argument("--output", type=Path, default=DEFAULT_PROVIDER_OUTPUT_V2)
     mcp = subparsers.add_parser(
         "mcp",
         help="run the local MCP server",
@@ -1633,6 +1659,60 @@ def _run_chatbi_eval(args: argparse.Namespace) -> int:
     print("chatbi_eval_status: complete")
     if output.get("mode") == "offline":
         print("offline_verification: infrastructure-only; not a model-quality benchmark")
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
+async def _run_chatbi_eval_v2_provider_async(
+    args: argparse.Namespace,
+    settings: Settings,
+) -> dict[str, object]:
+    """Run the provider-free v2 preflight or the explicit DEV benchmark."""
+    if args.preflight:
+        report = await preflight_v2_provider_benchmark(
+            settings,
+            split=args.split,
+            dataset_path=args.dataset,
+            fixture_path=args.fixture,
+            output_path=args.output,
+        )
+    else:
+        report = await run_v2_provider_benchmark(
+            settings,
+            split=args.split,
+            dataset_path=args.dataset,
+            fixture_path=args.fixture,
+            output_path=args.output,
+        )
+    return report.model_dump(mode="json")
+
+
+def _run_chatbi_eval_v2_provider(args: argparse.Namespace) -> int:
+    """Run the explicit v2 provider evaluation without exposing secrets."""
+    try:
+        settings = get_settings()
+        output = asyncio.run(_run_chatbi_eval_v2_provider_async(args, settings))
+    except V2ProviderBenchmarkError as error:
+        print("chatbi_eval_v2_provider_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except ChatBIEvaluationError as error:
+        print("chatbi_eval_v2_provider_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except ChatBIError as error:
+        print("chatbi_eval_v2_provider_status: failed", file=sys.stderr)
+        print(f"error: {error.safe_message}", file=sys.stderr)
+        return 1
+    except (LLMError, ValidationError, ValueError, OSError):
+        print("chatbi_eval_v2_provider_status: failed", file=sys.stderr)
+        print("error: ChatBI v2 provider evaluation failed", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("chatbi_eval_v2_provider_status: interrupted", file=sys.stderr)
+        return 130
+
+    print("chatbi_eval_v2_provider_status: complete")
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 
@@ -3094,6 +3174,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_chatbi_ask(args)
     if args.command == "chatbi" and args.chatbi_action == "eval":
         return _run_chatbi_eval(args)
+    if args.command == "chatbi" and args.chatbi_action == "eval-v2-provider":
+        return _run_chatbi_eval_v2_provider(args)
     if args.command == "mcp" and args.mcp_action == "serve":
         return _run_mcp_serve()
     if args.command == "llm-smoke-test":
