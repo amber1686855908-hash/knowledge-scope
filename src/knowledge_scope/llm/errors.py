@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 LLMErrorCategory = Literal[
     "configuration",
@@ -27,12 +28,22 @@ class LLMError(Exception):
         retryable: bool = False,
         status_code: int | None = None,
         provider_attempts: int = 0,
+        provider: str | None = None,
+        model: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        invocation_id: UUID | None = None,
     ) -> None:
         super().__init__(message)
         self.category = category
         self.retryable = retryable
         self.status_code = status_code
         self.provider_attempts = max(0, provider_attempts)
+        self.provider = provider
+        self.model = model
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.invocation_id = invocation_id
 
 
 class LLMConfigurationError(LLMError):
@@ -53,6 +64,9 @@ class LLMProviderError(LLMError):
         retryable: bool = False,
         status_code: int | None = None,
         provider_attempts: int = 1,
+        provider: str | None = None,
+        model: str | None = None,
+        invocation_id: UUID | None = None,
     ) -> None:
         super().__init__(
             category,
@@ -60,6 +74,9 @@ class LLMProviderError(LLMError):
             retryable=retryable,
             status_code=status_code,
             provider_attempts=provider_attempts,
+            provider=provider,
+            model=model,
+            invocation_id=invocation_id,
         )
 
 

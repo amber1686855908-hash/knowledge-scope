@@ -71,7 +71,8 @@ from knowledge_scope.chatbi.schemas import (
     QueryTruncationReason,
 )
 from knowledge_scope.llm import LLMGateway, LLMResult, create_llm_provider
-from knowledge_scope.llm.schemas import LLMRequest
+from knowledge_scope.llm.observability import provider_observation_context
+from knowledge_scope.llm.schemas import LLMProviderInvocation, LLMRequest
 from knowledge_scope.llm.usage import DatabaseUsageRecorder
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
@@ -664,7 +665,7 @@ class NumericSummary(_EvaluationModel):
 
 
 class UsageAggregate(_EvaluationModel):
-    """Usage totals and distribution summaries copied from ChatBIResult only."""
+    """Logical usage plus exact provider-attempt summaries when available."""
 
     case_count: StrictInt = Field(ge=0)
     llm_calls_total: StrictInt = Field(ge=0)
@@ -672,6 +673,10 @@ class UsageAggregate(_EvaluationModel):
     input_tokens: NumericSummary
     output_tokens: NumericSummary
     estimated_cost: None = None
+    provider_attempt_count: StrictInt = Field(default=0, ge=0)
+    provider_success_count: StrictInt = Field(default=0, ge=0)
+    provider_failure_count: StrictInt = Field(default=0, ge=0)
+    llm_result_count: StrictInt = Field(default=0, ge=0)
 
 
 class EvaluationCaseRecord(_EvaluationModel):
@@ -1208,6 +1213,7 @@ class ChatBIEvaluationObservation(_EvaluationModel):
     execution_result: QueryExecutionResult | None = None
     timings: ChatBIStageTimings = Field(default_factory=ChatBIStageTimings)
     stages: EvaluationStageState = Field(default_factory=EvaluationStageState)
+    provider_invocations: list[LLMProviderInvocation] = Field(default_factory=list)
 
 
 class ChatBICaseRunner(Protocol):
@@ -1626,21 +1632,21 @@ class _TimedGeneration:
         schema_before = self._timing.schema_prep_ms
         self._timing.generation_provider_called = False
         started = perf_counter()
+        stage = "repair_generation" if is_repair else "generation"
         try:
-            result = await self._inner.generate_candidate_with_usage_for_registered_data_source(
-                datasource_id,
-                query,
-                policy=policy,
-                max_chars=max_chars,
-                max_tokens=max_tokens,
-                previous_sql=previous_sql,
-                validation_error=validation_error,
-            )
-            stage = "repair_generation" if is_repair else "generation"
+            with provider_observation_context(logical_stage=stage):
+                result = await self._inner.generate_candidate_with_usage_for_registered_data_source(
+                    datasource_id,
+                    query,
+                    policy=policy,
+                    max_chars=max_chars,
+                    max_tokens=max_tokens,
+                    previous_sql=previous_sql,
+                    validation_error=validation_error,
+                )
             self._timing.stages = self._timing.stages.model_copy(update={stage: "passed"})
             return result
         except BaseException:
-            stage = "repair_generation" if is_repair else "generation"
             status = "failed" if self._timing.generation_provider_called else "not_attempted"
             self._timing.stages = self._timing.stages.model_copy(update={stage: status})
             raise
@@ -1732,7 +1738,8 @@ class _TimedAnalysisGateway:
     async def complete(self, request: LLMRequest) -> LLMResult:
         started = perf_counter()
         try:
-            result = await self._inner.complete(request)
+            with provider_observation_context(logical_stage="analysis"):
+                result = await self._inner.complete(request)
             if request.task_type == "chatbi_analysis":
                 self._timing.stages = self._timing.stages.model_copy(update={"analysis": "passed"})
             return result

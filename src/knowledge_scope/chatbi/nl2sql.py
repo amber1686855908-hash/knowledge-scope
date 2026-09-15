@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from knowledge_scope.llm.errors import LLMError
 from knowledge_scope.llm.schemas import (
     LLMMessage,
     LLMRequest,
@@ -16,7 +17,7 @@ from knowledge_scope.llm.schemas import (
     LLMResult,
 )
 
-from .errors import ChatBIError, ChatBIErrorCategory
+from .errors import ChatBIError, ChatBIErrorCategory, StructuredOutputError
 from .nl2sql_models import (
     NL2SQL_MAX_TOKENS,
     NL2SQL_PROMPT_VERSION,
@@ -96,6 +97,19 @@ class LLMUsageMetadata:
             provider_attempts=result.provider_attempts,
         )
 
+    @classmethod
+    def from_error(cls, error: LLMError) -> LLMUsageMetadata | None:
+        """Carry safe provider metadata when a call failed after an attempt."""
+        if error.provider is None or error.model is None:
+            return None
+        return cls(
+            provider=error.provider,
+            model=error.model,
+            input_tokens=error.input_tokens,
+            output_tokens=error.output_tokens,
+            provider_attempts=error.provider_attempts,
+        )
+
 
 class NL2SQLGenerationError(ChatBIError):
     """Controlled post-provider generation failure with completed-call usage."""
@@ -106,9 +120,13 @@ class NL2SQLGenerationError(ChatBIError):
         message: str,
         *,
         usage: LLMUsageMetadata,
+        response_parse_outcome: Literal[
+            "structured_output_parse_error", "structured_output_schema_error"
+        ] = "structured_output_schema_error",
     ) -> None:
         super().__init__(category, message)
         self.usage = usage
+        self.response_parse_outcome = response_parse_outcome
 
 
 def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -131,11 +149,19 @@ def _parse_generation_payload(text: str) -> SQLGenerationPayload:
             object_pairs_hook=_reject_duplicate_pairs,
             parse_constant=_reject_json_constant,
         )
-        return SQLGenerationPayload.model_validate(payload)
-    except (TypeError, ValueError, ValidationError):
-        raise ChatBIError(
+    except (TypeError, ValueError):
+        raise StructuredOutputError(
             ChatBIErrorCategory.MALFORMED_MODEL_OUTPUT,
             "LLM returned malformed NL2SQL output",
+            output_category="structured_output_parse_error",
+        ) from None
+    try:
+        return SQLGenerationPayload.model_validate(payload)
+    except ValidationError:
+        raise StructuredOutputError(
+            ChatBIErrorCategory.MALFORMED_MODEL_OUTPUT,
+            "LLM returned malformed NL2SQL output",
+            output_category="structured_output_schema_error",
         ) from None
 
 
@@ -281,6 +307,18 @@ class NL2SQLService:
         )
         try:
             result = await self._gateway.complete(llm_request)
+        except LLMError as error:
+            usage = LLMUsageMetadata.from_error(error)
+            if usage is not None:
+                raise NL2SQLGenerationError(
+                    ChatBIErrorCategory.GENERATION_FAILED,
+                    "NL2SQL generation failed",
+                    usage=usage,
+                ) from None
+            raise ChatBIError(
+                ChatBIErrorCategory.GENERATION_FAILED,
+                "NL2SQL generation failed",
+            ) from None
         except Exception as error:
             if isinstance(error, ChatBIError):
                 raise
@@ -307,17 +345,26 @@ class NL2SQLService:
                 prompt_version=NL2SQL_PROMPT_VERSION,
             )
             return candidate, result
+        except StructuredOutputError as error:
+            raise NL2SQLGenerationError(
+                error.category,
+                error.safe_message,
+                usage=usage,
+                response_parse_outcome=error.output_category,
+            ) from None
         except ChatBIError as error:
             raise NL2SQLGenerationError(
                 error.category,
                 error.safe_message,
                 usage=usage,
+                response_parse_outcome="structured_output_schema_error",
             ) from None
         except (AttributeError, TypeError, ValidationError):
             raise NL2SQLGenerationError(
                 ChatBIErrorCategory.MALFORMED_MODEL_OUTPUT,
                 "LLM returned malformed NL2SQL output",
                 usage=usage,
+                response_parse_outcome="structured_output_schema_error",
             ) from None
 
     async def _generate(

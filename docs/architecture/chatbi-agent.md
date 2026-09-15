@@ -41,6 +41,19 @@ Agent 不是无界 ReAct 循环。默认设置如下，均可通过 `Settings` �
 失败时，Agent 仍会合并该次调用的 provider、model 和 token usage；provider 调用本身失败则
 遵循网关既有的失败记录语义。
 
+评测和运行观测把一次逻辑调用与一次真实 provider attempt 分开记录。`LLMProviderInvocation`
+只保存 case ID、逻辑阶段、attempt 序号、provider/model、时延、状态类别、token 数量、
+`finish_reason`、解析结果类别和 token 预算等安全元数据；不保存 prompt、原始响应、凭据或
+连接字符串。一个逻辑调用可能对应多次 provider attempt，也可能在没有 `LLMResult` 的情况
+下失败，因此 provider attempt 数必须从调用观测记录统计，不能只从成功结果相加。解析失败的
+已完成调用仍计入 usage；结果分析还会区分 `structured_output_parse_error`、
+`structured_output_schema_error` 与 provider/transport/timeout 等失败类别。评测 case ID 通过
+task-local context 进入观测记录，不使用全局可变状态。
+
+provider timeout 是每次 attempt 的应用层绝对 wall-clock deadline，覆盖 provider await 的
+完整过程；超时会取消当前操作并记录一次失败 attempt。只有显式 retryable 的 provider 错误
+才沿用网关现有的有限重试，重试可能重复 provider 侧工作或费用，不提供 exactly-once 保证。
+
 ## 结果分析
 
 结果分析使用现有 LLM Gateway 的 `task_type=chatbi_analysis` 和版本化提示
@@ -69,7 +82,9 @@ Agent 不是无界 ReAct 循环。默认设置如下，均可通过 `Settings` �
 执行成功但结果分析失败时，`execution_status` 仍为 `succeeded`，同时返回
 `error_category=analysis_failed`，以区分 SQL 已成功执行和答案分析未完成。分析调用失败不
 改变已经发生的数据库读取，也不把失败伪装成成功答案。审计与 usage 记录由各自已有的
-服务负责；它们与外部 PostgreSQL 读取不构成分布式原子事务。
+服务负责；它们与外部 PostgreSQL 读取不构成分布式原子事务。provider invocation 的 durable
+观测与逻辑 usage 记录也分别提交；观测持久化失败会显式暴露为基础设施错误，不会静默把
+调用当成未发生，但两类记录之间不宣称全局原子一致。
 
 ## CLI 与边界
 
