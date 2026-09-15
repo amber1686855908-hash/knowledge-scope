@@ -58,9 +58,11 @@ provider timeout 是每次 attempt 的应用层绝对 wall-clock deadline，覆�
 ## 结果分析
 
 结果分析使用现有 LLM Gateway 的 `task_type=chatbi_analysis` 和版本化提示
-`a5.5-v1`。传给模型的内容只有用户问题、经过字面量脱敏的 SQL、列元数据、已经规范化且有界
-的行数据，以及 `row_count`、`truncated` 和截断原因。问题和结果都作为确定性 JSON 数据编码；
-单元格内容不能改变提示结构，也不能成为指令。
+`a5.5-v2`。分析请求显式使用 provider-independent 的 `reasoning="disabled"`，只要求简短的
+答案和可选的简短 warning，不接受内部推理、SQL 过程叙述、Schema 重述或整表复述。传给模型的
+内容只有用户问题、经过字面量脱敏的 SQL、列元数据、已经规范化且有界的行数据，以及
+`row_count`、`truncated` 和截断原因。问题和结果都作为确定性 JSON 数据编码；单元格内容不能
+改变提示结构，也不能成为指令。
 
 模型只能返回严格 JSON：
 

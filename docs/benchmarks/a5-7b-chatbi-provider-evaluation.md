@@ -43,6 +43,13 @@ NL2SQL 生成共用 `chatbi_nl2sql_max_tokens=1024`，结果分析使用
 比较器和数据集均不变；历史 Run #1/Run #2 产物不回写，TEST split 仍不可用。该调整只修正已
 确认的输出预算限制，在新的 DEV 运行前不宣称质量提升。
 
+## A5.7d2 分析契约硬化（未运行 provider）
+
+Run #3 将分析预算从 512 提高到 1024 后，已确认的 analysis token-limit failure 从 `23` 次
+降至 `14` 次，但仍未消除。由于小结果集也可能耗尽 1024 tokens，A5.7d2 先收紧分析阶段的
+简短 JSON 输出契约，并在该阶段显式关闭已有的 reasoning 控制；不先继续提高预算。该修改
+尚未运行新的 DEV/TEST provider 评测，不宣称质量提升，也不回写历史运行产物或冻结数据集。
+
 ## 冻结输入
 
 评测输入来自 `docs/benchmarks/a5-7-chatbi-eval-v2.json`，状态为
