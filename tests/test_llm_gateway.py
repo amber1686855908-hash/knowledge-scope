@@ -194,6 +194,22 @@ async def test_gateway_marks_token_limit_only_from_finish_reason() -> None:
 
 
 @pytest.mark.anyio
+async def test_gateway_records_the_actual_1024_output_budget() -> None:
+    request = _request().model_copy(update={"max_tokens": 1024})
+    invocations = InMemoryProviderInvocationRecorder()
+
+    await LLMGateway(
+        _Provider([object()]),
+        _Recorder(),
+        _settings(),
+        invocation_recorder=invocations,
+    ).complete(request)
+
+    assert invocations.records[0].output_token_budget == 1024
+    assert invocations.records[0].token_limit_status == "not_reached"
+
+
+@pytest.mark.anyio
 async def test_gateway_records_each_retry_attempt_and_one_logical_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

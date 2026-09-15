@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
-from typing import Literal, Self
+from typing import Final, Literal, Self
 from uuid import UUID
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -13,6 +13,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+DEFAULT_CHATBI_NL2SQL_MAX_TOKENS: Final = 1024
+DEFAULT_CHATBI_ANALYSIS_MAX_TOKENS: Final = 1024
 
 
 class Settings(BaseSettings):
@@ -121,12 +124,20 @@ class Settings(BaseSettings):
     chatbi_schema_context_max_chars: int = Field(default=24_000, ge=1, le=1_000_000)
     chatbi_allowed_schemas: list[str] = Field(default_factory=lambda: ["public"])
     chatbi_allow_views: bool = False
-    chatbi_nl2sql_max_tokens: int = Field(default=512, ge=1, le=16_384)
+    chatbi_nl2sql_max_tokens: int = Field(
+        default=DEFAULT_CHATBI_NL2SQL_MAX_TOKENS,
+        ge=1,
+        le=16_384,
+    )
     chatbi_agent_max_sql_attempts: int = Field(default=2, ge=1, le=5)
     chatbi_agent_max_repair_attempts: int = Field(default=1, ge=0, le=3)
     chatbi_agent_max_steps: int = Field(default=6, ge=1, le=12)
     chatbi_agent_max_llm_calls: int = Field(default=3, ge=1, le=8)
-    chatbi_analysis_max_tokens: int = Field(default=512, ge=1, le=16_384)
+    chatbi_analysis_max_tokens: int = Field(
+        default=DEFAULT_CHATBI_ANALYSIS_MAX_TOKENS,
+        ge=1,
+        le=16_384,
+    )
     # Provider-backed A5.7 evaluation is authoritative only for this explicitly
     # registered, isolated demo datasource.  It is intentionally optional so
     # ordinary application startup does not require benchmark configuration.

@@ -22,6 +22,7 @@ from pydantic import (
 
 from knowledge_scope.llm.errors import LLMError
 from knowledge_scope.llm.schemas import LLMMessage, LLMRequest, LLMResponseFormat, LLMResult
+from knowledge_scope.shared.config import DEFAULT_CHATBI_ANALYSIS_MAX_TOKENS
 
 from .errors import ChatBIError, ChatBIErrorCategory, StructuredOutputError
 from .execution import SQLExecutionOutcome, SQLExecutionService, redact_sql_literals
@@ -83,7 +84,11 @@ class ChatBIAgentLimits(_AgentModel):
     max_repair_attempts: StrictInt = Field(default=1, ge=0, le=3)
     max_steps: StrictInt = Field(default=6, ge=1, le=12)
     max_llm_calls: StrictInt = Field(default=3, ge=1, le=8)
-    analysis_max_tokens: StrictInt = Field(default=512, ge=1, le=16_384)
+    analysis_max_tokens: StrictInt = Field(
+        default=DEFAULT_CHATBI_ANALYSIS_MAX_TOKENS,
+        ge=1,
+        le=16_384,
+    )
 
     @classmethod
     def from_settings(cls, settings: Settings) -> ChatBIAgentLimits:

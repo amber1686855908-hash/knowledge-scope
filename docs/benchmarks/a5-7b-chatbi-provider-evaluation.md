@@ -29,6 +29,20 @@ Run #1 的问题是测量与观测限制，不改变冻结数据集、fixture、
 或 analysis `max_tokens=512`。不得用这些历史数字宣称自然语言答案准确率，也不得将历史
 artifact 原地改写。
 
+## A5.7d1 DEV 输出预算调整
+
+DEV Baseline Run #2（run ID：`9dd19827-0329-4618-914e-3a72f5d5e16c`）的调用级观测确认：8
+次首次 generation 解析失败全部以 `finish_reason=length`、`output_tokens=512` 和
+`output_token_budget=512` 结束；8 次 repair 中有 5 次同样触及 512；44 次 analysis 中有
+23 次以同样的 512-token 截断并产生结构化解析失败。这是已确认的输出容量瓶颈，不是对模型
+质量的重新评估。
+
+因此，后续 ChatBI provider DEV 运行将统一使用 `1024` output tokens：首次和有界 repair 的
+NL2SQL 生成共用 `chatbi_nl2sql_max_tokens=1024`，结果分析使用
+`chatbi_analysis_max_tokens=1024`。修复次数、prompt、response schema、temperature、模型、
+比较器和数据集均不变；历史 Run #1/Run #2 产物不回写，TEST split 仍不可用。该调整只修正已
+确认的输出预算限制，在新的 DEV 运行前不宣称质量提升。
+
 ## 冻结输入
 
 评测输入来自 `docs/benchmarks/a5-7-chatbi-eval-v2.json`，状态为

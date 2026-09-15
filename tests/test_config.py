@@ -62,12 +62,12 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.chatbi_schema_context_max_chars == 24_000
     assert settings.chatbi_allowed_schemas == ["public"]
     assert settings.chatbi_allow_views is False
-    assert settings.chatbi_nl2sql_max_tokens == 512
+    assert settings.chatbi_nl2sql_max_tokens == 1024
     assert settings.chatbi_agent_max_sql_attempts == 2
     assert settings.chatbi_agent_max_repair_attempts == 1
     assert settings.chatbi_agent_max_steps == 6
     assert settings.chatbi_agent_max_llm_calls == 3
-    assert settings.chatbi_analysis_max_tokens == 512
+    assert settings.chatbi_analysis_max_tokens == 1024
     assert settings.chatbi_evaluation_datasource_id is None
     assert settings.mcp_max_in_flight == 4
     assert settings.sparse_index_path == Path("data/evaluation/a4-3/sparse.sqlite3")
