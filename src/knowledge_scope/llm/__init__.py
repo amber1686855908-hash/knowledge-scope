@@ -4,6 +4,7 @@ from knowledge_scope.llm.gateway import LLMGateway
 from knowledge_scope.llm.providers import DeepSeekProvider, create_llm_provider
 from knowledge_scope.llm.schemas import (
     LLMMessage,
+    LLMProviderInvocation,
     LLMRequest,
     LLMResponseFormat,
     LLMResult,
@@ -15,6 +16,7 @@ __all__ = [
     "DeepSeekProvider",
     "LLMGateway",
     "LLMMessage",
+    "LLMProviderInvocation",
     "LLMRequest",
     "LLMResponseFormat",
     "LLMResult",

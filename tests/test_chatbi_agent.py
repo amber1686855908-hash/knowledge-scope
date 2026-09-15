@@ -29,6 +29,7 @@ from knowledge_scope.chatbi import (
     build_semantic_schema_context,
 )
 from knowledge_scope.chatbi.execution import SQLExecutionOutcome
+from knowledge_scope.llm.errors import LLMProviderError
 from knowledge_scope.llm.schemas import LLMRequest, LLMResult
 
 DATASOURCE_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -182,6 +183,24 @@ class _ScriptedGateway:
             output_tokens=4,
             latency_ms=1,
         )
+
+
+class _FailingGateway:
+    def __init__(self) -> None:
+        self.requests: list[LLMRequest] = []
+
+    async def complete(self, request: LLMRequest) -> LLMResult:
+        self.requests.append(request)
+        error = LLMProviderError(
+            "api",
+            "provider request failed",
+            provider="fake-provider",
+            model="fake-model",
+            provider_attempts=1,
+        )
+        error.input_tokens = 13
+        error.output_tokens = 2
+        raise error
 
 
 def _registered_generation_service(gateway: _ScriptedGateway) -> NL2SQLService:
@@ -460,6 +479,32 @@ async def test_malformed_initial_nl2sql_preserves_completed_call_usage() -> None
 
 
 @pytest.mark.anyio
+async def test_provider_failure_preserves_safe_failure_usage() -> None:
+    generation = _registered_generation_service(_FailingGateway())
+    execution = _FakeExecution([])
+
+    result = await ChatBIAgentService(
+        generation,
+        execution,
+        _FakeAnalysis([]),
+    ).ask(
+        DATASOURCE_ID,
+        "查询结果",
+        policy=QueryPolicy(),
+        max_chars=10_000,
+    )
+
+    assert result.execution_status is QueryLifecycleState.FAILED
+    assert result.error_category is ChatBIErrorCategory.GENERATION_FAILED
+    assert result.usage.llm_calls == 1
+    assert result.usage.provider_attempts == 1
+    assert result.usage.provider == "fake-provider"
+    assert result.usage.model == "fake-model"
+    assert result.usage.input_tokens == 13
+    assert result.usage.output_tokens == 2
+
+
+@pytest.mark.anyio
 async def test_malformed_repair_nl2sql_preserves_initial_and_repair_usage() -> None:
     gateway = _ScriptedGateway(['{"sql":"SELECT 1"}', "not json"])
     generation = _registered_generation_service(gateway)
@@ -629,11 +674,42 @@ async def test_analysis_malformed_output_returns_controlled_failure_after_succes
     assert result.execution_status is QueryLifecycleState.SUCCEEDED
     assert result.answer is None
     assert result.error_category is ChatBIErrorCategory.ANALYSIS_FAILED
+    assert result.analysis_parse_outcome == "structured_output_parse_error"
     assert [event.event for event in result.trace][-1] == "analysis_failed"
     assert result.usage.llm_calls == 2
     assert result.usage.provider_attempts == 2
     assert result.usage.input_tokens == 21
     assert result.usage.output_tokens == 12
+
+
+@pytest.mark.anyio
+async def test_analysis_provider_failure_preserves_safe_usage() -> None:
+    generation = _FakeGeneration([_candidate()])
+    execution = _FakeExecution([_execution_result(rows=[["1"]])])
+    error = LLMProviderError(
+        "timeout",
+        "provider request timed out",
+        provider="fake-analysis",
+        model="fake-analysis-model",
+        provider_attempts=1,
+    )
+    error.input_tokens = 11
+    error.output_tokens = 0
+    analysis = _FakeAnalysis([error])
+
+    result = await _agent(generation, execution, analysis).ask(
+        DATASOURCE_ID,
+        "查询结果",
+        policy=QueryPolicy(),
+        max_chars=10_000,
+    )
+
+    assert result.execution_status is QueryLifecycleState.SUCCEEDED
+    assert result.error_category is ChatBIErrorCategory.ANALYSIS_FAILED
+    assert result.usage.llm_calls == 2
+    assert result.usage.provider_attempts == 2
+    assert result.usage.input_tokens == 21
+    assert result.usage.output_tokens == 5
 
 
 @pytest.mark.anyio

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 
 class ChatBIErrorCategory(StrEnum):
@@ -38,3 +39,17 @@ class ChatBIError(RuntimeError):
         self.category = category
         self.safe_message = message
         super().__init__(message)
+
+
+class StructuredOutputError(ChatBIError):
+    """Controlled parse/schema failure for a completed structured LLM response."""
+
+    def __init__(
+        self,
+        category: ChatBIErrorCategory,
+        message: str,
+        *,
+        output_category: Literal["structured_output_parse_error", "structured_output_schema_error"],
+    ) -> None:
+        super().__init__(category, message)
+        self.output_category = output_category

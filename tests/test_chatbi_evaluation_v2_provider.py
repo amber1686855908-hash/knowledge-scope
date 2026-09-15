@@ -24,8 +24,17 @@ from knowledge_scope.chatbi.discovery import create_postgres_schema_discovery_se
 from knowledge_scope.chatbi.models import ChatBIDataSourceRecord
 from knowledge_scope.chatbi.policy import SQLDialect
 from knowledge_scope.chatbi.registry import DatabaseDataSourceProvider
-from knowledge_scope.evaluation.chatbi_evaluation import ChatBIEvaluationObservation
-from knowledge_scope.evaluation.chatbi_evaluation_v2 import load_chatbi_evaluation_dataset_v2
+from knowledge_scope.evaluation.chatbi_evaluation import (
+    ChatBIEvaluationObservation,
+    ChatBIStageTimings,
+    EvaluationStageState,
+    RepairOutcome,
+)
+from knowledge_scope.evaluation.chatbi_evaluation_v2 import (
+    ChatBIEvaluationV2Category,
+    ChatBIEvaluationV2Difficulty,
+    load_chatbi_evaluation_dataset_v2,
+)
 from knowledge_scope.evaluation.chatbi_evaluation_v2_provider import (
     CHATBI_EVALUATION_V2_CONNECTION_REF,
     CHATBI_EVALUATION_V2_DATABASE_NAME,
@@ -39,19 +48,29 @@ from knowledge_scope.evaluation.chatbi_evaluation_v2_provider import (
     EXPECTED_FIXTURE_FINGERPRINT_V2,
     EXPECTED_FIXTURE_SCHEMA_FINGERPRINT_V2,
     V2ProviderBenchmarkError,
+    V2ProviderCaseRecord,
     V2ProviderPreflightReport,
     V2ProviderSplit,
     _authoritative_record_matches,
+    _build_v2_aggregate,
     _fixture_data_fingerprint,
     _fixture_schema_fingerprint,
     _fixture_schema_payload,
     _local_postgres_urls,
     _prepare_v2_preflight,
+    _TimingState,
     _v2_query_policy,
+    _v2_record,
+    _v2_usage_aggregate,
+    _V2AgentRunner,
     evaluate_v2_provider_cases,
     select_v2_provider_cases,
 )
-from knowledge_scope.llm import LLMRequest, LLMResult
+from knowledge_scope.llm import LLMProviderInvocation, LLMRequest, LLMResult
+from knowledge_scope.llm.usage import (
+    CompositeProviderInvocationRecorder,
+    InMemoryProviderInvocationRecorder,
+)
 from knowledge_scope.shared.config import Settings
 
 
@@ -98,6 +117,248 @@ class _CountingV2Runner:
                 ),
             )
         )
+
+
+def _provider_case_record(
+    *,
+    case_id: str,
+    positive: bool = True,
+    initial_generation_parseable: bool = True,
+    repair_attempted: bool = False,
+    repair_generation_parseable: bool | None = None,
+    repair_recovery_success: bool = False,
+    provider_invocations: list[LLMProviderInvocation] | None = None,
+) -> V2ProviderCaseRecord:
+    if not repair_attempted:
+        repair_outcome = RepairOutcome.NOT_ATTEMPTED
+        repair_generation_state = "not_attempted"
+    elif repair_recovery_success:
+        repair_outcome = RepairOutcome.REPAIRED
+        repair_generation_state = "passed"
+    else:
+        repair_outcome = RepairOutcome.EXHAUSTED
+        repair_generation_state = "passed" if repair_generation_parseable else "failed"
+    return V2ProviderCaseRecord(
+        case_id=case_id,
+        positive=positive,
+        category=ChatBIEvaluationV2Category.SIMPLE_FILTER_PROJECTION,
+        difficulty=ChatBIEvaluationV2Difficulty.EASY,
+        stages=EvaluationStageState(
+            generation="passed" if initial_generation_parseable else "failed",
+            validation="passed" if positive else "failed",
+            execution="passed" if positive else "not_attempted",
+            analysis="passed" if positive else "not_attempted",
+            repair_generation=repair_generation_state,
+        ),
+        result_status=QueryLifecycleState.SUCCEEDED if positive else QueryLifecycleState.REJECTED,
+        generation_parseable=initial_generation_parseable,
+        initial_generation_parseable=initial_generation_parseable,
+        eventual_sql_candidate_available=positive or repair_generation_parseable is True,
+        repair_generation_parseable=repair_generation_parseable if repair_attempted else None,
+        repair_recovery_success=repair_recovery_success,
+        validation_accepted=positive,
+        execution_equivalent=True if positive else None,
+        structured_result_fact_coverage=None,
+        expected_failure_match=True if not positive else None,
+        repair_attempted=repair_attempted,
+        repair_outcome=repair_outcome,
+        row_count=1 if positive else 0,
+        truncated=False,
+        latency=ChatBIStageTimings(
+            schema_prep_ms=1,
+            generation_ms=1,
+            validation_ms=1,
+            execution_ms=1,
+            repair_ms=1 if repair_attempted else None,
+            analysis_ms=1 if positive else None,
+            total_ms=1,
+        ),
+        usage=ChatBIUsageSummary(
+            llm_calls=1,
+            provider_attempts=1,
+            input_tokens=10,
+            output_tokens=5,
+        ),
+        provider_invocations=provider_invocations or [],
+        trace_events=["sql_executed"] if positive else [],
+    )
+
+
+def test_v2_usage_aggregate_separates_attempts_from_completed_results() -> None:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    invocations = [
+        LLMProviderInvocation(
+            case_id="case-001",
+            logical_stage="generation",
+            attempt_index=1,
+            provider="fake",
+            model="fake-model",
+            started_at=now,
+            completed_at=now,
+            duration_ms=1,
+            outcome="success",
+            input_tokens=10,
+            output_tokens=5,
+            llm_result_returned=True,
+        ),
+        LLMProviderInvocation(
+            case_id="case-001",
+            logical_stage="generation",
+            attempt_index=2,
+            provider="fake",
+            model="fake-model",
+            started_at=now,
+            completed_at=now,
+            duration_ms=1,
+            outcome="failure",
+            error_category="provider_api_error",
+            llm_result_returned=False,
+        ),
+    ]
+
+    aggregate = _v2_usage_aggregate(
+        [
+            _provider_case_record(
+                case_id="case-001",
+                provider_invocations=invocations,
+            )
+        ]
+    )
+
+    assert aggregate.provider_attempt_count == 2
+    assert aggregate.provider_attempts_total == 2
+    assert aggregate.provider_success_count == 1
+    assert aggregate.provider_failure_count == 1
+    assert aggregate.llm_result_count == 1
+    assert aggregate.input_tokens.total == 10
+    assert aggregate.output_tokens.total == 5
+
+
+def test_v2_repair_aggregate_uses_runtime_recovery_not_review_metadata() -> None:
+    recovered = _provider_case_record(
+        case_id="repair-recovered",
+        initial_generation_parseable=False,
+        repair_attempted=True,
+        repair_generation_parseable=True,
+        repair_recovery_success=True,
+    )
+    parseable_but_not_recovered = _provider_case_record(
+        case_id="repair-exhausted",
+        initial_generation_parseable=False,
+        repair_attempted=True,
+        repair_generation_parseable=True,
+    )
+    failed_repair = _provider_case_record(
+        case_id="repair-malformed",
+        initial_generation_parseable=False,
+        repair_attempted=True,
+        repair_generation_parseable=False,
+    )
+
+    aggregate = _build_v2_aggregate([recovered, parseable_but_not_recovered, failed_repair])
+
+    assert aggregate.generation_parseable_count == 0
+    assert aggregate.repair_attempted_count == 3
+    assert aggregate.repair_generation_success_count == 2
+    assert aggregate.repair_recovery_success_count == 1
+    assert aggregate.repair_success_count == 1
+    assert aggregate.repair_failure_count == 2
+    assert aggregate.incremental_recovered_count == 1
+
+
+def test_v2_record_keeps_initial_and_eventual_generation_metrics_distinct() -> None:
+    case = next(
+        case
+        for case in load_chatbi_evaluation_dataset_v2(DEFAULT_DATASET_V2).cases
+        if case.split == V2ProviderSplit.DEV.value and case.positive
+    )
+    result = ChatBIResult(
+        query_id=uuid4(),
+        datasource_id=CHATBI_EVALUATION_V2_DATASOURCE_ID,
+        execution_status=QueryLifecycleState.SUCCEEDED,
+        redacted_sql="SELECT 1",
+        row_count=1,
+        sql_attempts=2,
+        repair_attempts=1,
+        usage=ChatBIUsageSummary(llm_calls=2, provider_attempts=2),
+    )
+    record = _v2_record(
+        case,
+        ChatBIEvaluationObservation(
+            result=result,
+            stages=EvaluationStageState(
+                generation="failed",
+                repair_generation="passed",
+                validation="passed",
+                execution="passed",
+            ),
+        ),
+    )
+
+    assert record.initial_generation_parseable is False
+    assert record.generation_parseable is False
+    assert record.repair_generation_parseable is True
+    assert record.eventual_sql_candidate_available is True
+
+
+@pytest.mark.anyio
+async def test_v2_runner_updates_durable_and_local_invocation_metadata() -> None:
+    """Post-processing parse outcomes reach both evaluation and durable sinks."""
+    local_recorder = InMemoryProviderInvocationRecorder()
+    durable_recorder = InMemoryProviderInvocationRecorder()
+    sink = CompositeProviderInvocationRecorder(durable_recorder, local_recorder)
+    case = select_v2_provider_cases(
+        load_chatbi_evaluation_dataset_v2(DEFAULT_DATASET_V2), V2ProviderSplit.DEV.value
+    )[0]
+
+    class _Agent:
+        async def ask(self, *_args: object, **_kwargs: object) -> ChatBIResult:
+            now = datetime.now(UTC)
+            await sink.record_invocation(
+                LLMProviderInvocation(
+                    case_id=case.case_id,
+                    logical_stage="analysis",
+                    attempt_index=1,
+                    provider="fake",
+                    model="fake-model",
+                    started_at=now,
+                    completed_at=now,
+                    duration_ms=1,
+                    outcome="success",
+                    input_tokens=10,
+                    output_tokens=4,
+                    llm_result_returned=True,
+                    response_parse_outcome="provider_success",
+                )
+            )
+            return ChatBIResult(
+                query_id=uuid4(),
+                datasource_id=CHATBI_EVALUATION_V2_DATASOURCE_ID,
+                execution_status=QueryLifecycleState.SUCCEEDED,
+                row_count=0,
+                sql_attempts=1,
+                repair_attempts=0,
+                usage=ChatBIUsageSummary(llm_calls=1, provider_attempts=1),
+                analysis_parse_outcome="structured_output_parse_error",
+            )
+
+    runner = _V2AgentRunner(
+        _Agent(),
+        _TimingState(),
+        CHATBI_EVALUATION_V2_DATASOURCE_ID,
+        QueryPolicy(),
+        10_000,
+        local_recorder,
+        sink,
+    )
+
+    observation = await runner.run(case)
+
+    assert observation.provider_invocations[0].response_parse_outcome == (
+        "structured_output_parse_error"
+    )
+    assert durable_recorder.records[0].response_parse_outcome == ("structured_output_parse_error")
+    assert durable_recorder.records[0].error_category == "structured_output_parse_error"
 
 
 @pytest.mark.anyio

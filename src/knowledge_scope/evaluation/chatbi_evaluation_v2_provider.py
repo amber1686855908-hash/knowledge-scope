@@ -96,7 +96,14 @@ from knowledge_scope.evaluation.chatbi_evaluation_v2 import (
     structured_result_facts_match,
 )
 from knowledge_scope.llm import LLMGateway, create_llm_provider
-from knowledge_scope.llm.usage import DatabaseUsageRecorder
+from knowledge_scope.llm.observability import provider_observation_context
+from knowledge_scope.llm.schemas import LLMProviderInvocation
+from knowledge_scope.llm.usage import (
+    CompositeProviderInvocationRecorder,
+    DatabaseUsageRecorder,
+    InMemoryProviderInvocationRecorder,
+    ProviderInvocationRecorder,
+)
 from knowledge_scope.shared.config import Settings
 from knowledge_scope.shared.database import create_database_engine, create_session_factory
 
@@ -170,6 +177,12 @@ class V2ProviderCaseRecord(_EvaluationModel):
     stages: EvaluationStageState
     result_status: QueryLifecycleState
     generation_parseable: StrictBool
+    initial_generation_parseable: StrictBool | None = None
+    eventual_sql_candidate_available: StrictBool = False
+    repair_generation_parseable: StrictBool | None = None
+    repair_recovery_success: StrictBool = False
+    validation_failure_code: StrictStr | None = Field(default=None, max_length=64)
+    validation_failure_reason: StrictStr | None = Field(default=None, max_length=500)
     validation_accepted: StrictBool
     execution_equivalent: StrictBool | None = None
     structured_result_fact_coverage: StrictBool | None = None
@@ -182,6 +195,9 @@ class V2ProviderCaseRecord(_EvaluationModel):
     truncation_reason: QueryTruncationReason | None = None
     latency: ChatBIStageTimings
     usage: ChatBIUsageSummary
+    provider_invocations: list[LLMProviderInvocation] = Field(default_factory=list)
+    analysis_parse_outcome: StrictStr | None = Field(default=None, max_length=48)
+    analysis_token_limit_status: StrictStr | None = Field(default=None, max_length=16)
     redacted_sql: StrictStr | None = Field(default=None, max_length=100_000)
     trace_events: list[StrictStr] = Field(default_factory=list)
 
@@ -209,6 +225,10 @@ class V2ProviderAggregate(_EvaluationModel):
     repair_failure_count: StrictInt = Field(ge=0)
     repair_success_rate: float | None = Field(default=None, ge=0, le=1)
     incremental_recovered_count: StrictInt = Field(ge=0)
+    repair_generation_success_count: StrictInt = Field(default=0, ge=0)
+    repair_generation_success_rate: float | None = Field(default=None, ge=0, le=1)
+    repair_recovery_success_count: StrictInt = Field(default=0, ge=0)
+    repair_recovery_success_rate: float | None = Field(default=None, ge=0, le=1)
     failure_categories: dict[str, StrictInt] = Field(default_factory=dict)
     latency: LatencyAggregate
     usage: UsageAggregate
@@ -310,6 +330,28 @@ def _negative_safe_success(record: V2ProviderCaseRecord) -> bool:
     )
 
 
+_VALIDATION_FAILURE_CATEGORIES = frozenset(
+    {
+        ChatBIErrorCategory.INVALID_QUERY,
+        ChatBIErrorCategory.SQL_PARSE_ERROR,
+        ChatBIErrorCategory.UNSAFE_QUERY,
+        ChatBIErrorCategory.POLICY_VIOLATION,
+        ChatBIErrorCategory.UNKNOWN_TABLE,
+        ChatBIErrorCategory.UNKNOWN_COLUMN,
+    }
+)
+
+
+def _validation_failure_details(result: ChatBIResult) -> tuple[str | None, str | None]:
+    """Return bounded validation diagnostics without exposing generated SQL."""
+    if "validation_rejected" not in {event.event for event in result.trace}:
+        return None, None
+    category = result.error_category
+    code = category.value if category in _VALIDATION_FAILURE_CATEGORIES else "validation_rejected"
+    reason = result.error_message.strip()[:500] if result.error_message else "validation rejected"
+    return code, reason
+
+
 def _v2_latency_aggregate(records: Sequence[V2ProviderCaseRecord]) -> LatencyAggregate:
     fields = (
         "schema_prep_ms",
@@ -329,12 +371,33 @@ def _v2_latency_aggregate(records: Sequence[V2ProviderCaseRecord]) -> LatencyAgg
 
 
 def _v2_usage_aggregate(records: Sequence[V2ProviderCaseRecord]) -> UsageAggregate:
+    invocations = [invocation for record in records for invocation in record.provider_invocations]
+    if invocations:
+        provider_attempt_count = len(invocations)
+        provider_success_count = sum(invocation.outcome == "success" for invocation in invocations)
+        provider_failure_count = sum(
+            invocation.outcome in {"failure", "cancelled"} for invocation in invocations
+        )
+        llm_result_count = sum(invocation.llm_result_returned for invocation in invocations)
+        input_tokens = _numeric_summary([invocation.input_tokens for invocation in invocations])
+        output_tokens = _numeric_summary([invocation.output_tokens for invocation in invocations])
+    else:
+        provider_attempt_count = sum(record.usage.provider_attempts for record in records)
+        provider_success_count = sum(record.usage.llm_calls for record in records)
+        provider_failure_count = max(0, provider_attempt_count - provider_success_count)
+        llm_result_count = sum(record.usage.llm_calls for record in records)
+        input_tokens = _numeric_summary([record.usage.input_tokens for record in records])
+        output_tokens = _numeric_summary([record.usage.output_tokens for record in records])
     return UsageAggregate(
         case_count=len(records),
         llm_calls_total=sum(record.usage.llm_calls for record in records),
-        provider_attempts_total=sum(record.usage.provider_attempts for record in records),
-        input_tokens=_numeric_summary([record.usage.input_tokens for record in records]),
-        output_tokens=_numeric_summary([record.usage.output_tokens for record in records]),
+        provider_attempts_total=provider_attempt_count,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        provider_attempt_count=provider_attempt_count,
+        provider_success_count=provider_success_count,
+        provider_failure_count=provider_failure_count,
+        llm_result_count=llm_result_count,
     )
 
 
@@ -348,13 +411,27 @@ def _build_v2_aggregate(records: Sequence[V2ProviderCaseRecord]) -> V2ProviderAg
         record for record in records if record.stages.validation != "not_attempted"
     ]
     repair_attempted = [record for record in records if record.repair_attempted]
-    repair_success = [
-        record for record in repair_attempted if record.repair_outcome is RepairOutcome.REPAIRED
+    repair_generation_success = [
+        record
+        for record in repair_attempted
+        if record.repair_generation_parseable is True
+        or (
+            record.repair_generation_parseable is None
+            and record.repair_outcome is RepairOutcome.REPAIRED
+        )
+    ]
+    repair_recovery_success = [
+        record for record in repair_attempted if record.repair_recovery_success
     ]
     fact_records = [
         record for record in positives if record.structured_result_fact_coverage is not None
     ]
-    generation_parseable_count = sum(record.generation_parseable for record in generation_attempted)
+    generation_parseable_count = sum(
+        record.initial_generation_parseable
+        if record.initial_generation_parseable is not None
+        else record.generation_parseable
+        for record in generation_attempted
+    )
     validator_accepted_count = sum(record.validation_accepted for record in validation_attempted)
     execution_equivalent_count = sum(record.execution_equivalent is True for record in positives)
     fact_coverage_count = sum(
@@ -386,12 +463,19 @@ def _build_v2_aggregate(records: Sequence[V2ProviderCaseRecord]) -> V2ProviderAg
             len(negatives),
         ),
         repair_attempted_count=len(repair_attempted),
-        repair_success_count=len(repair_success),
-        repair_failure_count=len(repair_attempted) - len(repair_success),
-        repair_success_rate=_safe_rate(len(repair_success), len(repair_attempted)),
+        repair_success_count=len(repair_recovery_success),
+        repair_failure_count=len(repair_attempted) - len(repair_recovery_success),
+        repair_success_rate=_safe_rate(len(repair_recovery_success), len(repair_attempted)),
         incremental_recovered_count=sum(
-            record.positive and record.repair_attempted and record.execution_equivalent is True
-            for record in records
+            record.positive and record.repair_recovery_success for record in records
+        ),
+        repair_generation_success_count=len(repair_generation_success),
+        repair_generation_success_rate=_safe_rate(
+            len(repair_generation_success), len(repair_attempted)
+        ),
+        repair_recovery_success_count=len(repair_recovery_success),
+        repair_recovery_success_rate=_safe_rate(
+            len(repair_recovery_success), len(repair_attempted)
         ),
         failure_categories=dict(
             sorted(
@@ -1294,14 +1378,26 @@ def _v2_record(
         else (False if case.structured_answer_facts else None)
     )
     repair_attempted = result.repair_attempts > 0
-    if not case.repair_applicable:
-        repair_outcome = RepairOutcome.NOT_APPLICABLE
-    elif not repair_attempted:
+    initial_generation_parseable = stages.generation == "passed"
+    eventual_sql_candidate_available = result.redacted_sql is not None
+    repair_generation_parseable = stages.repair_generation == "passed" if repair_attempted else None
+    repair_recovery_success = case.positive and repair_attempted and execution_equivalent is True
+    if not repair_attempted:
         repair_outcome = RepairOutcome.NOT_ATTEMPTED
-    elif result.execution_status is QueryLifecycleState.SUCCEEDED:
+    elif repair_recovery_success:
         repair_outcome = RepairOutcome.REPAIRED
     else:
         repair_outcome = RepairOutcome.EXHAUSTED
+
+    validation_failure_code, validation_failure_reason = _validation_failure_details(result)
+    analysis_invocations = [
+        invocation
+        for invocation in observation.provider_invocations
+        if invocation.logical_stage == "analysis"
+    ]
+    analysis_token_limit_status = (
+        analysis_invocations[-1].token_limit_status if analysis_invocations else None
+    )
 
     if result.error_category is ChatBIErrorCategory.ANALYSIS_FAILED:
         failure_category = ChatBIEvaluationFailureCategory.ANALYSIS
@@ -1322,7 +1418,13 @@ def _v2_record(
         difficulty=case.difficulty,
         stages=stages,
         result_status=result.execution_status,
-        generation_parseable=stages.generation == "passed",
+        generation_parseable=initial_generation_parseable,
+        initial_generation_parseable=initial_generation_parseable,
+        eventual_sql_candidate_available=eventual_sql_candidate_available,
+        repair_generation_parseable=repair_generation_parseable,
+        repair_recovery_success=repair_recovery_success,
+        validation_failure_code=validation_failure_code,
+        validation_failure_reason=validation_failure_reason,
         validation_accepted=stages.validation == "passed",
         execution_equivalent=execution_equivalent,
         structured_result_fact_coverage=structured_coverage,
@@ -1335,6 +1437,9 @@ def _v2_record(
         truncation_reason=result.truncation_reason,
         latency=observation.timings,
         usage=result.usage,
+        provider_invocations=observation.provider_invocations,
+        analysis_parse_outcome=result.analysis_parse_outcome,
+        analysis_token_limit_status=analysis_token_limit_status,
         redacted_sql=result.redacted_sql,
         trace_events=[event.event for event in result.trace],
     )
@@ -1383,30 +1488,67 @@ class _V2AgentRunner:
         datasource_id: UUID,
         policy: QueryPolicy,
         max_chars: int,
+        invocation_recorder: InMemoryProviderInvocationRecorder,
+        invocation_updater: ProviderInvocationRecorder,
     ) -> None:
         self._agent = agent
         self._timing = timing
         self._datasource_id = datasource_id
         self._policy = policy
         self._max_chars = max_chars
+        self._invocation_recorder = invocation_recorder
+        self._invocation_updater = invocation_updater
 
     async def run(self, case: ChatBIEvaluationCaseV2) -> ChatBIEvaluationObservation:
         self._timing.reset()
         started = perf_counter()
+        invocation_start = len(self._invocation_recorder.records)
         try:
-            result = await self._agent.ask(
-                self._datasource_id,
-                case.question,
-                policy=self._policy,
-                max_chars=self._max_chars,
-            )
+            with provider_observation_context(case_id=case.case_id):
+                result = await self._agent.ask(
+                    self._datasource_id,
+                    case.question,
+                    policy=self._policy,
+                    max_chars=self._max_chars,
+                )
         finally:
             self._timing.total_ms = (perf_counter() - started) * 1_000
+        invocations = list(self._invocation_recorder.records[invocation_start:])
+        for invocation in invocations:
+            if invocation.outcome != "success":
+                continue
+            if invocation.logical_stage == "generation":
+                parse_outcome = (
+                    "parsed"
+                    if self._timing.stages.generation == "passed"
+                    else "structured_output_schema_error"
+                )
+            elif invocation.logical_stage == "repair_generation":
+                parse_outcome = (
+                    "parsed"
+                    if self._timing.stages.repair_generation == "passed"
+                    else "structured_output_schema_error"
+                )
+            elif invocation.logical_stage == "analysis":
+                parse_outcome = result.analysis_parse_outcome or (
+                    "parsed"
+                    if self._timing.stages.analysis == "passed"
+                    else "structured_output_schema_error"
+                )
+            else:
+                parse_outcome = "provider_success"
+            await self._invocation_updater.update_invocation(
+                invocation.id,
+                response_parse_outcome=parse_outcome,
+                error_category=None if parse_outcome == "parsed" else parse_outcome,
+            )
+        invocations = list(self._invocation_recorder.records[invocation_start:])
         return ChatBIEvaluationObservation(
             result=result,
             execution_result=self._timing.execution_result,
             timings=self._timing.snapshot(),
             stages=self._timing.stage_snapshot(),
+            provider_invocations=invocations,
         )
 
 
@@ -1448,14 +1590,21 @@ async def run_v2_provider_benchmark(
             # Provider construction is intentionally after the provider-free gate.
             provider = create_llm_provider(settings)
             timing = _TimingState()
+            usage_recorder = DatabaseUsageRecorder(session_factory)
+            invocation_recorder = InMemoryProviderInvocationRecorder()
+            durable_invocation_recorder = usage_recorder
+            invocation_sink = CompositeProviderInvocationRecorder(
+                durable_invocation_recorder, invocation_recorder
+            )
             discovery = create_postgres_schema_discovery_service(
                 connection_timeout_seconds=settings.chatbi_schema_connection_timeout_seconds,
                 statement_timeout_ms=settings.chatbi_statement_timeout_ms,
             )
             gateway = LLMGateway(
                 provider,
-                DatabaseUsageRecorder(session_factory),
+                usage_recorder,
                 settings,
+                invocation_sink,
             )
             timed_discovery = _TimedDiscovery(discovery, timing)
             generation = NL2SQLService(
@@ -1492,6 +1641,8 @@ async def run_v2_provider_benchmark(
                     CHATBI_EVALUATION_V2_DATASOURCE_ID,
                     policy,
                     settings.chatbi_schema_context_max_chars,
+                    invocation_recorder,
+                    invocation_sink,
                 ),
             )
             completed_at = datetime.now(UTC)

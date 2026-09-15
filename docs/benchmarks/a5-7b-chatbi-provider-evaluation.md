@@ -1,7 +1,33 @@
 # ChatBI 评测 v2 Provider 基础设施
 
-本文记录冻结的 ChatBI 评测 v2 在真实 provider 评测前需要的本地基础设施。本文不
-记录 provider 质量结果；真实评测必须在本地 preflight 通过后，显式运行 DEV 命令。
+本文记录冻结的 ChatBI 评测 v2 的本地基础设施、DEV 基线和真实 provider 运行观测。原始
+Run #1 产物保持不可变；本文中的修正口径只适用于后续运行和只读诊断，不回写历史产物。
+真实评测必须在本地 preflight 通过后，显式运行 DEV 命令。
+
+## DEV Baseline Run #1
+
+以下是冻结 Run #1 的历史观察，不能作为新的运行结果或产品质量承诺：
+
+- run ID：`38cb4c88-a97f-4429-a643-cbaa96f29eca`；Git revision：
+  `5f876fcf4f5900936f290cafecbaae1aca3ff92e`；provider/model：`deepseek` /
+  `deepseek-flash`；dataset fingerprint：
+  `60c75c597da8fc71a0fa5b25d335b63410b44a4ab3a403da40ca72c5ae375ab3`；fixture fingerprint：
+  `fd972106c39c7a8b31b57975118708e213a32e4e008ee13fafc15b1ea1b5182d`。
+- DEV 50 条，其中正例 47、负例 3；SQL Execution Accuracy 为 `25/47 = 53.19%`。
+- 首次 generation 可解析 `41/50`；validator 接受 `46/49`；修复尝试 9 次；历史修复成功
+  聚合为 0，但增量恢复的正例为 4。历史 repair 聚合的分母口径不具权威性，后续运行分别
+  报告 repair generation success 与 repair recovery success，且不使用 `repair_applicable`
+  作为分母。
+- 历史 analysis failure 为 28；其中 26 个成功返回的 analysis 结果恰好使用 512 output
+  tokens。仅凭 token 数不能证明截断，后续调用观测使用 `finish_reason` 区分 confirmed 与
+  suspected token-limit。
+- 历史产物记录 provider attempts 为 103；调用级观测显示实际 outbound invocation 为 105，
+  因此 provider attempt 统计存在 2 次低估。一次 analysis 调用约 417.8 秒，而当时配置的
+  timeout 为 60 秒，后续 gateway 使用应用层绝对 attempt deadline。
+
+Run #1 的问题是测量与观测限制，不改变冻结数据集、fixture、comparator、prompt、temperature
+或 analysis `max_tokens=512`。不得用这些历史数字宣称自然语言答案准确率，也不得将历史
+artifact 原地改写。
 
 ## 冻结输入
 
@@ -101,3 +127,17 @@ fact coverage 是辅助指标；修复次数、token 和时延只报告实际运
 v2 的 schema/context policy 固定只允许 `chatbi_demo`，同时沿用 Settings 中的只读、
 行数、结果大小和超时边界。provider key 仍由本地 `.env` 或环境变量提供；`.env`、模型
 文件和运行产物不得提交。
+
+## 后续运行的安全观测口径
+
+provider runner 对每次 outbound invocation 记录安全元数据：case ID、generation/repair/
+analysis 阶段、attempt 序号、provider/model、开始和完成时间、时延、成功/失败/取消、
+`finish_reason`、token 数、HTTP 状态类别、可重试标记、结构化输出解析类别和 output-token
+预算。provider attempt、provider success、provider failure 和 `LLMResult` 是四个独立计数。
+结构化解析失败不会抹掉已经发生的 usage；provider 错误按 gateway 的有限重试语义记录。
+
+修复指标使用运行时事实：`initial_generation_parseable` 只表示首次 generation，
+`eventual_sql_candidate_available` 表示有界修复后是否得到候选；`repair_generation_success`
+只表示修复响应可解析，`repair_recovery_success` 只表示正例最终达到 execution-equivalent，
+`incremental_recovered_count` 只统计原本未达到、经修复后达到的正例。`repair_applicable` 是
+审核元数据，不进入这些运行时分母。

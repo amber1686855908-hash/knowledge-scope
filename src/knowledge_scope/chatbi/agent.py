@@ -20,9 +20,10 @@ from pydantic import (
     model_validator,
 )
 
+from knowledge_scope.llm.errors import LLMError
 from knowledge_scope.llm.schemas import LLMMessage, LLMRequest, LLMResponseFormat, LLMResult
 
-from .errors import ChatBIError, ChatBIErrorCategory
+from .errors import ChatBIError, ChatBIErrorCategory, StructuredOutputError
 from .execution import SQLExecutionOutcome, SQLExecutionService, redact_sql_literals
 from .nl2sql import LLMUsageMetadata, NL2SQLGenerationError, NL2SQLService
 from .nl2sql_models import NL2SQLInput, SQLCandidate
@@ -157,6 +158,9 @@ class ChatBIResult(_AgentModel):
     warnings: list[StrictStr] = Field(default_factory=list)
     error_category: ChatBIErrorCategory | None = None
     error_message: StrictStr | None = Field(default=None, max_length=2_000)
+    analysis_parse_outcome: (
+        Literal["parsed", "structured_output_parse_error", "structured_output_schema_error"] | None
+    ) = None
     trace: list[ChatBITraceEvent] = Field(default_factory=list)
 
     @classmethod
@@ -262,11 +266,19 @@ def _parse_analysis_payload(text: str) -> ChatBIAnalysisPayload:
             object_pairs_hook=_reject_duplicate_pairs,
             parse_constant=_reject_json_constant,
         )
-        return ChatBIAnalysisPayload.model_validate(payload)
-    except (TypeError, ValueError, ValidationError):
-        raise ChatBIError(
+    except (TypeError, ValueError):
+        raise StructuredOutputError(
             ChatBIErrorCategory.ANALYSIS_FAILED,
             "LLM returned malformed ChatBI analysis output",
+            output_category="structured_output_parse_error",
+        ) from None
+    try:
+        return ChatBIAnalysisPayload.model_validate(payload)
+    except ValidationError:
+        raise StructuredOutputError(
+            ChatBIErrorCategory.ANALYSIS_FAILED,
+            "LLM returned malformed ChatBI analysis output",
+            output_category="structured_output_schema_error",
         ) from None
 
 
@@ -361,6 +373,10 @@ class ChatBIAgentService:
         usage: ChatBIUsageSummary,
         warnings: Sequence[str],
         trace: Sequence[ChatBITraceEvent],
+        analysis_parse_outcome: Literal[
+            "parsed", "structured_output_parse_error", "structured_output_schema_error"
+        ]
+        | None = None,
     ) -> ChatBIResult:
         execution = outcome.result if outcome is not None else None
         status = execution.state if execution is not None else QueryLifecycleState.FAILED
@@ -395,6 +411,7 @@ class ChatBIAgentService:
             warnings=final_warnings,
             error_category=error_category,
             error_message=error_message,
+            analysis_parse_outcome=analysis_parse_outcome,
             trace=list(trace),
         )
 
@@ -732,6 +749,10 @@ class ChatBIAgentService:
             return limit_result()
         llm_calls += 1
         add_trace("analysis_requested")
+        analysis_parse_outcome: (
+            Literal["parsed", "structured_output_parse_error", "structured_output_schema_error"]
+            | None
+        ) = None
         try:
             analysis_result = await self._analysis_gateway.complete(
                 LLMRequest(
@@ -747,11 +768,57 @@ class ChatBIAgentService:
                     response_format=LLMResponseFormat(type="json_object"),
                 )
             )
+            if not isinstance(analysis_result, LLMResult):
+                raise ChatBIError(
+                    ChatBIErrorCategory.ANALYSIS_FAILED,
+                    "LLM returned an invalid normalized result",
+                )
             add_usage(analysis_result)
             analysis = _parse_analysis_payload(analysis_result.text)
+            analysis_parse_outcome = "parsed"
         except asyncio.CancelledError:
             add_trace("analysis_failed", error_category=ChatBIErrorCategory.EXECUTION_CANCELLED)
             raise
+        except LLMError as error:
+            usage = LLMUsageMetadata.from_error(error)
+            if usage is not None:
+                add_usage(usage)
+            application_error = ChatBIError(
+                ChatBIErrorCategory.ANALYSIS_FAILED,
+                "ChatBI result analysis failed",
+            )
+            add_trace("analysis_failed", error_category=application_error.category)
+            return self._build_result(
+                query_id=query_id,
+                datasource_id=datasource_id,
+                candidate=candidate,
+                outcome=outcome,
+                answer=None,
+                error=application_error,
+                sql_attempts=sql_attempts,
+                repair_attempts=repair_attempts,
+                usage=usage_summary(),
+                warnings=warnings,
+                trace=trace,
+                analysis_parse_outcome=analysis_parse_outcome,
+            )
+        except StructuredOutputError as error:
+            analysis_parse_outcome = error.output_category
+            add_trace("analysis_failed", error_category=error.category)
+            return self._build_result(
+                query_id=query_id,
+                datasource_id=datasource_id,
+                candidate=candidate,
+                outcome=outcome,
+                answer=None,
+                error=error,
+                sql_attempts=sql_attempts,
+                repair_attempts=repair_attempts,
+                usage=usage_summary(),
+                warnings=warnings,
+                trace=trace,
+                analysis_parse_outcome=analysis_parse_outcome,
+            )
         except ChatBIError as error:
             add_trace("analysis_failed", error_category=error.category)
             return self._build_result(
@@ -766,6 +833,7 @@ class ChatBIAgentService:
                 usage=usage_summary(),
                 warnings=warnings,
                 trace=trace,
+                analysis_parse_outcome=analysis_parse_outcome,
             )
         except Exception:
             error = ChatBIError(
@@ -785,6 +853,7 @@ class ChatBIAgentService:
                 usage=usage_summary(),
                 warnings=warnings,
                 trace=trace,
+                analysis_parse_outcome=analysis_parse_outcome,
             )
 
         add_trace("analysis_completed")
@@ -802,6 +871,7 @@ class ChatBIAgentService:
             usage=usage_summary(),
             warnings=warnings,
             trace=trace,
+            analysis_parse_outcome=analysis_parse_outcome,
         )
 
 
