@@ -128,6 +128,42 @@ class _FakeGateway:
         )
 
 
+@pytest.mark.anyio
+async def test_default_nl2sql_and_repair_budgets_are_1024() -> None:
+    class SequenceGateway:
+        def __init__(self) -> None:
+            self.responses = ["not json", json.dumps({"sql": "SELECT 1"})]
+            self.requests: list[LLMRequest] = []
+
+        async def complete(self, request: LLMRequest) -> LLMResult:
+            self.requests.append(request)
+            return LLMResult(
+                text=self.responses.pop(0),
+                provider="fake",
+                model="fake-model",
+                input_tokens=10,
+                output_tokens=5,
+                latency_ms=1,
+            )
+
+    request = _request()
+    gateway = SequenceGateway()
+    service = NL2SQLService(gateway)
+
+    with pytest.raises(ChatBIError) as error:
+        await service._generate_with_result(request)
+    assert error.value.category is ChatBIErrorCategory.MALFORMED_MODEL_OUTPUT
+
+    candidate, _result = await service._generate_with_result(
+        request,
+        repair_context=(None, "malformed model output"),
+    )
+
+    assert candidate.sql == "SELECT 1"
+    assert [item.max_tokens for item in gateway.requests] == [1024, 1024]
+    assert gateway.requests[0].messages[0] == gateway.requests[1].messages[0]
+
+
 def test_nl2sql_models_are_strict_and_request_context_is_bound() -> None:
     with pytest.raises(ValidationError):
         SQLGenerationPayload.model_validate({"sql": "SELECT 1", "explanation": "safe"})

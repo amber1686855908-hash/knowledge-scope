@@ -383,6 +383,7 @@ async def test_happy_path_executes_once_then_analyzes_result() -> None:
     assert result.usage.output_tokens == 12
     assert result.redacted_sql == "SELECT 0 AS answer"
     assert analysis.requests[0].task_type == "chatbi_analysis"
+    assert analysis.requests[0].max_tokens == 1024
     assert [event.event for event in result.trace] == [
         "schema_prepared",
         "sql_generated",

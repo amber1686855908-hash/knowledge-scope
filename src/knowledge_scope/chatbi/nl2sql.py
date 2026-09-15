@@ -16,6 +16,7 @@ from knowledge_scope.llm.schemas import (
     LLMResponseFormat,
     LLMResult,
 )
+from knowledge_scope.shared.config import DEFAULT_CHATBI_NL2SQL_MAX_TOKENS
 
 from .errors import ChatBIError, ChatBIErrorCategory, StructuredOutputError
 from .nl2sql_models import (
@@ -251,7 +252,7 @@ class NL2SQLService:
         *,
         schema_discovery: SchemaDiscoveryProvider | None = None,
         data_source_provider: RegisteredDataSourceProvider | None = None,
-        max_tokens: int = 512,
+        max_tokens: int = DEFAULT_CHATBI_NL2SQL_MAX_TOKENS,
     ) -> None:
         if not 1 <= max_tokens <= NL2SQL_MAX_TOKENS:
             raise ValueError(f"max_tokens must be between 1 and {NL2SQL_MAX_TOKENS}")
