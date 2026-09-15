@@ -23,6 +23,7 @@ from knowledge_scope.chatbi import (
     SQLDialect,
     SQLGenerationPayload,
     build_nl2sql_messages,
+    build_nl2sql_repair_messages,
     build_semantic_schema_context,
     policy_fingerprint,
 )
@@ -407,12 +408,39 @@ def test_prompt_is_versioned_and_contains_only_question_and_structural_context()
     messages = build_nl2sql_messages(request)
 
     assert [message.role for message in messages] == ["system", "user"]
-    assert "a5.3-v2" in messages[0].content
+    assert "a5.3-v3" in messages[0].content
     assert request.question in messages[1].content
     assert "Approved semantic schema context JSON" in messages[1].content
     assert "Comment:" not in messages[1].content
     assert "connection_ref" not in "".join(message.content for message in messages)
     assert "password" not in "".join(message.content for message in messages).lower()
+
+
+def test_nl2sql_prompt_enforces_general_exact_projection_contract() -> None:
+    request = _request()
+
+    base_messages = build_nl2sql_messages(request)
+    repair_messages = build_nl2sql_repair_messages(
+        request,
+        previous_sql="SELECT id FROM public.sales",
+        validation_error="unknown column",
+    )
+
+    required_rules = (
+        "Select exactly the columns or derived values needed",
+        "Do not add helpful",
+        "Preserve the natural order",
+        "For top-k, minimum, maximum, earliest, or latest questions",
+        "Never use SELECT *",
+        "concise, stable aliases",
+        "used only for joins, filters, grouping, or deterministic tie-breaking",
+    )
+    for rule in required_rules:
+        assert rule in base_messages[0].content
+        assert rule in repair_messages[0].content
+    assert repair_messages[0].content == base_messages[0].content
+    assert "case_id" not in base_messages[0].content
+    assert "reference_sql" not in base_messages[0].content
 
 
 def test_prompt_excludes_untrusted_schema_comments() -> None:

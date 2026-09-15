@@ -19,7 +19,7 @@ from .policy import QueryPolicy, SQLDialect
 from .schema_models import SchemaSnapshot, SemanticSchemaContext
 
 NL2SQL_SCHEMA_VERSION: Final = "1.0"
-NL2SQL_PROMPT_VERSION: Final = "a5.3-v2"
+NL2SQL_PROMPT_VERSION: Final = "a5.3-v3"
 SQL_VALIDATION_VERSION: Final = "1.0"
 NL2SQL_MAX_TOKENS: Final = 16_384
 NL2SQL_FINGERPRINT_PATTERN: Final = r"^[0-9a-f]{64}$"
@@ -103,7 +103,7 @@ class SQLCandidate(_NL2SQLModel):
     context_fingerprint: StrictStr = Field(pattern=NL2SQL_FINGERPRINT_PATTERN)
     provider: StrictStr = Field(min_length=1, max_length=64)
     model: StrictStr = Field(min_length=1, max_length=255)
-    prompt_version: Literal["a5.3-v2"] = NL2SQL_PROMPT_VERSION
+    prompt_version: Literal["a5.3-v3"] = NL2SQL_PROMPT_VERSION
 
     @field_validator("question", "sql")
     @classmethod
