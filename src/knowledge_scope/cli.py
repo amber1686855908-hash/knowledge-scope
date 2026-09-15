@@ -49,6 +49,25 @@ from knowledge_scope.documents.registration import (
     write_frozen_eval_kb_mapping,
 )
 from knowledge_scope.evaluation import a4_5_retrieval_evaluation, reranker_benchmark
+from knowledge_scope.evaluation.chatbi_evaluation import (
+    DEFAULT_DATASET as DEFAULT_CHATBI_EVAL_DATASET,
+)
+from knowledge_scope.evaluation.chatbi_evaluation import (
+    DEFAULT_FIXTURE_PATH as DEFAULT_CHATBI_EVAL_FIXTURE,
+)
+from knowledge_scope.evaluation.chatbi_evaluation import (
+    DEFAULT_OFFLINE_SCENARIOS,
+    ChatBIEvaluationError,
+    current_git_revision,
+    load_chatbi_evaluation_dataset,
+    load_offline_scenarios,
+    run_offline_chatbi_evaluation,
+    run_provider_chatbi_evaluation,
+    verify_fixture_fingerprint,
+)
+from knowledge_scope.evaluation.chatbi_evaluation import (
+    DEFAULT_OUTPUT as DEFAULT_CHATBI_EVAL_OUTPUT,
+)
 from knowledge_scope.evaluation.embedding_benchmark import (
     DEFAULT_CHUNK_INDEX,
     DEFAULT_DATASET,
@@ -287,6 +306,32 @@ def build_parser() -> argparse.ArgumentParser:
     chatbi_ask.add_argument("question")
     chatbi_ask.add_argument("--max-chars", type=_positive_int)
     chatbi_ask.add_argument("--model")
+    chatbi_eval = chatbi_actions.add_parser(
+        "eval",
+        help="run the frozen ChatBI evaluation in offline or explicit provider mode",
+    )
+    chatbi_eval.add_argument(
+        "--mode",
+        choices=("offline", "provider"),
+        default="offline",
+        help="offline uses stored deterministic scenarios; provider calls the configured gateway",
+    )
+    chatbi_eval.add_argument("--datasource-id", type=UUID)
+    chatbi_eval.add_argument("--dataset", type=Path, default=DEFAULT_CHATBI_EVAL_DATASET)
+    chatbi_eval.add_argument(
+        "--offline-scenarios",
+        type=Path,
+        default=DEFAULT_OFFLINE_SCENARIOS,
+    )
+    chatbi_eval.add_argument(
+        "--fixture",
+        type=Path,
+        default=DEFAULT_CHATBI_EVAL_FIXTURE,
+        help="the isolated demo SQL fixture used to verify dataset identity",
+    )
+    chatbi_eval.add_argument("--output", type=Path, default=DEFAULT_CHATBI_EVAL_OUTPUT)
+    chatbi_eval.add_argument("--max-chars", type=_positive_int)
+    chatbi_eval.add_argument("--max-cases", type=_positive_int)
     mcp = subparsers.add_parser(
         "mcp",
         help="run the local MCP server",
@@ -1528,6 +1573,66 @@ def _run_chatbi_ask(args: argparse.Namespace) -> int:
         print(json.dumps(output, ensure_ascii=False, indent=2), file=sys.stderr)
         return 1
     print("chatbi_ask_status: complete")
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
+async def _run_chatbi_eval_async(
+    args: argparse.Namespace,
+    settings: Settings,
+) -> dict[str, object]:
+    """Run the explicit A5.7 evaluator without mixing oracle data into prompts."""
+    dataset = load_chatbi_evaluation_dataset(args.dataset)
+    verify_fixture_fingerprint(dataset, args.fixture)
+    git_revision = current_git_revision()
+    if args.mode == "offline":
+        run = await run_offline_chatbi_evaluation(
+            dataset,
+            load_offline_scenarios(args.offline_scenarios),
+            output_path=args.output,
+            max_cases=args.max_cases,
+            git_revision=git_revision,
+        )
+    else:
+        if args.datasource_id is None:
+            raise ChatBIEvaluationError("provider evaluation requires --datasource-id")
+        run = await run_provider_chatbi_evaluation(
+            dataset,
+            settings=settings,
+            datasource_id=args.datasource_id,
+            output_path=args.output,
+            max_chars=args.max_chars,
+            max_cases=args.max_cases,
+            git_revision=git_revision,
+            fixture_path=args.fixture,
+        )
+    return run.model_dump(mode="json")
+
+
+def _run_chatbi_eval(args: argparse.Namespace) -> int:
+    """Run offline evaluation by default; provider mode is always explicit."""
+    try:
+        settings = get_settings()
+        output = asyncio.run(_run_chatbi_eval_async(args, settings))
+    except ChatBIEvaluationError as error:
+        print("chatbi_eval_status: failed", file=sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except ChatBIError as error:
+        print("chatbi_eval_status: failed", file=sys.stderr)
+        print(f"error: {error.safe_message}", file=sys.stderr)
+        return 1
+    except (LLMError, ValidationError, ValueError, OSError):
+        print("chatbi_eval_status: failed", file=sys.stderr)
+        print("error: ChatBI evaluation failed", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("chatbi_eval_status: interrupted", file=sys.stderr)
+        return 130
+
+    print("chatbi_eval_status: complete")
+    if output.get("mode") == "offline":
+        print("offline_verification: infrastructure-only; not a model-quality benchmark")
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 
@@ -2987,6 +3092,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_chatbi_execute(args)
     if args.command == "chatbi" and args.chatbi_action == "ask":
         return _run_chatbi_ask(args)
+    if args.command == "chatbi" and args.chatbi_action == "eval":
+        return _run_chatbi_eval(args)
     if args.command == "mcp" and args.mcp_action == "serve":
         return _run_mcp_serve()
     if args.command == "llm-smoke-test":

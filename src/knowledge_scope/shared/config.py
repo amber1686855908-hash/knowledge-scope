@@ -6,6 +6,7 @@ from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
 from typing import Literal, Self
+from uuid import UUID
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -126,6 +127,10 @@ class Settings(BaseSettings):
     chatbi_agent_max_steps: int = Field(default=6, ge=1, le=12)
     chatbi_agent_max_llm_calls: int = Field(default=3, ge=1, le=8)
     chatbi_analysis_max_tokens: int = Field(default=512, ge=1, le=16_384)
+    # Provider-backed A5.7 evaluation is authoritative only for this explicitly
+    # registered, isolated demo datasource.  It is intentionally optional so
+    # ordinary application startup does not require benchmark configuration.
+    chatbi_evaluation_datasource_id: UUID | None = None
     mcp_max_in_flight: int = Field(default=4, ge=1, le=32)
 
     @field_validator("chatbi_allowed_schemas")

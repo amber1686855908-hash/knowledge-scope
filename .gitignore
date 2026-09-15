@@ -77,6 +77,10 @@ data/benchmarks/a4-4/
 data/evaluation/a4-5/
 data/benchmarks/a4-5/
 
+# Local A5.7 ChatBI evaluation runs and provider-backed runtime artifacts
+data/evaluation/a5-7/
+data/benchmarks/a5-7/
+
 # IDE settings
 .idea/
 .vscode/

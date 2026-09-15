@@ -1,0 +1,281 @@
+{
+  "schema_version": "a5.7-v1",
+  "datasource_fixture": "tests/fixtures/chatbi_demo.sql",
+  "datasource_fixture_sha256": "cd5334e2aa7cb5d3a0e8a4ac95c876fd396f7ae13c5b7a7620497bd3de753c49",
+  "prompt_policy_version": "a5.7-oracle-separation-v1",
+  "dataset_fingerprint": "a4a5ff535ec6c5d88d5b9f136ba160e28b8774fa4b51790200069dab0a3f1fa3",
+  "cases": [
+    {
+      "case_id": "filtering-01",
+      "split": "dev",
+      "question": "哪些销售记录发生在华东地区？请按销售编号升序返回销售编号、销售日期和金额。",
+      "category": "filtering",
+      "reference_sql": "SELECT sale_id, sold_on, amount FROM chatbi_demo.sales WHERE region = '华东' ORDER BY sale_id",
+      "expected_result": {
+        "columns": ["sale_id", "sold_on", "amount"],
+        "rows": [[1, "2026-01-05", "1200.00"], [3, "2026-02-03", "1540.25"]],
+        "numeric_columns": [0, 2],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["华东", "2 条"],
+      "repair_applicable": true
+    },
+    {
+      "case_id": "projection-01",
+      "split": "dev",
+      "question": "列出所有客户名称，并按客户编号排序。",
+      "category": "projection",
+      "reference_sql": "SELECT customer_name FROM chatbi_demo.customers ORDER BY customer_id",
+      "expected_result": {
+        "columns": ["customer_name"],
+        "rows": [["示例客户 A"], ["示例客户 B"]],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["示例客户 A", "示例客户 B"],
+      "repair_applicable": false
+    },
+    {
+      "case_id": "aggregation-01",
+      "split": "dev",
+      "question": "所有销售记录的销售总额是多少？",
+      "category": "aggregation",
+      "reference_sql": "SELECT SUM(amount) AS total_amount FROM chatbi_demo.sales",
+      "expected_result": {
+        "columns": ["total_amount"],
+        "rows": [["3600.75"]],
+        "numeric_columns": [0],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["3600.75"],
+      "repair_applicable": false
+    },
+    {
+      "case_id": "group-by-01",
+      "split": "dev",
+      "question": "按地区统计销售笔数和销售总额，并按地区名称排序。",
+      "category": "group_by",
+      "reference_sql": "SELECT region, COUNT(*) AS sale_count, SUM(amount) AS total_amount FROM chatbi_demo.sales GROUP BY region ORDER BY region",
+      "expected_result": {
+        "columns": ["region", "sale_count", "total_amount"],
+        "rows": [["华东", 2, "2740.25"], ["华南", 1, "860.50"]],
+        "numeric_columns": [1, 2],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["华东", "华南", "2740.25"],
+      "repair_applicable": false
+    },
+    {
+      "case_id": "top-k-01",
+      "split": "dev",
+      "question": "金额最高的两笔销售是哪两笔？按金额从高到低返回销售编号和金额。",
+      "category": "ordering_top_k",
+      "reference_sql": "SELECT sale_id, amount FROM chatbi_demo.sales ORDER BY amount DESC, sale_id LIMIT 2",
+      "expected_result": {
+        "columns": ["sale_id", "amount"],
+        "rows": [[3, "1540.25"], [1, "1200.00"]],
+        "numeric_columns": [0, 1],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["1540.25", "1200.00"],
+      "repair_applicable": true
+    },
+    {
+      "case_id": "date-filter-01",
+      "split": "dev",
+      "question": "2026 年 2 月 1 日之后发生了哪些销售？返回销售编号和日期。",
+      "category": "date_filter",
+      "reference_sql": "SELECT sale_id, sold_on FROM chatbi_demo.sales WHERE sold_on >= DATE '2026-02-01' ORDER BY sale_id",
+      "expected_result": {
+        "columns": ["sale_id", "sold_on"],
+        "rows": [[3, "2026-02-03"]],
+        "numeric_columns": [0],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["2026-02-03", "销售编号 3"],
+      "repair_applicable": false
+    },
+    {
+      "case_id": "join-01",
+      "split": "dev",
+      "question": "列出每笔销售对应的客户名称和金额，并按销售编号排序。",
+      "category": "join",
+      "reference_sql": "SELECT s.sale_id, c.customer_name, s.amount FROM chatbi_demo.sales AS s JOIN chatbi_demo.customers AS c ON c.customer_id = s.customer_id ORDER BY s.sale_id",
+      "expected_result": {
+        "columns": ["sale_id", "customer_name", "amount"],
+        "rows": [[1, "示例客户 A", "1200.00"], [2, "示例客户 B", "860.50"], [3, "示例客户 A", "1540.25"]],
+        "numeric_columns": [0, 2],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["示例客户 A", "示例客户 B", "3 条"],
+      "repair_applicable": true
+    },
+    {
+      "case_id": "predicates-01",
+      "split": "dev",
+      "question": "找出华东地区且金额超过 1300 的销售编号和金额。",
+      "category": "predicates",
+      "reference_sql": "SELECT sale_id, amount FROM chatbi_demo.sales WHERE region = '华东' AND amount > 1300 ORDER BY sale_id",
+      "expected_result": {
+        "columns": ["sale_id", "amount"],
+        "rows": [[3, "1540.25"]],
+        "numeric_columns": [0, 1],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["销售编号 3", "1540.25"],
+      "repair_applicable": false
+    },
+    {
+      "case_id": "null-01",
+      "split": "dev",
+      "question": "没有填写地区的销售记录有多少条？",
+      "category": "null_semantics",
+      "reference_sql": "SELECT COUNT(*) AS missing_region FROM chatbi_demo.sales WHERE region IS NULL",
+      "expected_result": {
+        "columns": ["missing_region"],
+        "rows": [[0]],
+        "numeric_columns": [0],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["0 条"],
+      "repair_applicable": false
+    },
+    {
+      "case_id": "cte-01",
+      "split": "dev",
+      "question": "请用客户销售汇总找出每位客户的累计销售额，并按客户名称排序。",
+      "category": "cte",
+      "reference_sql": "WITH customer_totals AS (SELECT customer_id, SUM(amount) AS total_amount FROM chatbi_demo.sales GROUP BY customer_id) SELECT c.customer_name, t.total_amount FROM customer_totals AS t JOIN chatbi_demo.customers AS c ON c.customer_id = t.customer_id ORDER BY c.customer_name",
+      "expected_result": {
+        "columns": ["customer_name", "total_amount"],
+        "rows": [["示例客户 A", "2740.25"], ["示例客户 B", "860.50"]],
+        "numeric_columns": [1],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["示例客户 A", "2740.25"],
+      "repair_applicable": true
+    },
+    {
+      "case_id": "set-operation-01",
+      "split": "dev",
+      "question": "销售数据中出现过哪些地区？请去重并按地区名称排序。",
+      "category": "set_operation",
+      "reference_sql": "SELECT region FROM chatbi_demo.sales WHERE region = '华东' UNION SELECT region FROM chatbi_demo.sales WHERE region = '华南' ORDER BY region",
+      "expected_result": {
+        "columns": ["region"],
+        "rows": [["华东"], ["华南"]],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["华东", "华南"],
+      "repair_applicable": true
+    },
+    {
+      "case_id": "empty-01",
+      "split": "dev",
+      "question": "销售编号为 999 的销售记录是什么？",
+      "category": "empty",
+      "reference_sql": "SELECT sale_id, amount FROM chatbi_demo.sales WHERE sale_id = 999",
+      "expected_result": {
+        "columns": ["sale_id", "amount"],
+        "rows": [],
+        "numeric_columns": [0, 1],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["没有匹配"],
+      "repair_applicable": false
+    },
+    {
+      "case_id": "alias-derived-01",
+      "split": "test",
+      "question": "销售编号 1 的金额翻倍后是多少？请使用一个清晰的结果列名。",
+      "category": "alias_derived",
+      "reference_sql": "SELECT amount * 2 AS doubled_amount FROM chatbi_demo.sales WHERE sale_id = 1",
+      "expected_result": {
+        "columns": ["doubled_amount"],
+        "rows": [["2400.00"]],
+        "numeric_columns": [0],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["2400.00"],
+      "repair_applicable": false
+    },
+    {
+      "case_id": "difficult-01",
+      "split": "test",
+      "question": "哪位客户的累计销售额最高？请给出客户名称和累计金额。",
+      "category": "difficult_answerable",
+      "reference_sql": "WITH customer_totals AS (SELECT customer_id, SUM(amount) AS total_amount FROM chatbi_demo.sales GROUP BY customer_id) SELECT c.customer_name, t.total_amount FROM customer_totals AS t JOIN chatbi_demo.customers AS c ON c.customer_id = t.customer_id ORDER BY t.total_amount DESC, c.customer_name LIMIT 1",
+      "expected_result": {
+        "columns": ["customer_name", "total_amount"],
+        "rows": [["示例客户 A", "2740.25"]],
+        "numeric_columns": [1],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["示例客户 A", "2740.25"],
+      "repair_applicable": true
+    },
+    {
+      "case_id": "intersect-01",
+      "split": "test",
+      "question": "哪些地区在 2026 年 2 月前后都出现过销售？",
+      "category": "set_operation",
+      "reference_sql": "SELECT region FROM chatbi_demo.sales WHERE sold_on < DATE '2026-02-01' INTERSECT SELECT region FROM chatbi_demo.sales WHERE sold_on >= DATE '2026-02-01' ORDER BY region",
+      "expected_result": {
+        "columns": ["region"],
+        "rows": [["华东"]],
+        "row_order_sensitive": true
+      },
+      "expected_answer_facts": ["华东"],
+      "repair_applicable": true
+    },
+    {
+      "case_id": "with-union-01",
+      "split": "test",
+      "question": "用两个时间范围的查询合并得到所有出现过的销售地区，并去重。",
+      "category": "cte",
+      "reference_sql": "WITH early AS (SELECT region FROM chatbi_demo.sales WHERE sold_on < DATE '2026-02-01'), late AS (SELECT region FROM chatbi_demo.sales WHERE sold_on >= DATE '2026-02-01') SELECT region FROM early UNION SELECT region FROM late ORDER BY region",
+      "expected_result": {
+        "columns": ["region"],
+        "rows": [["华东"], ["华南"]],
+        "row_order_sensitive": false
+      },
+      "expected_answer_facts": ["华东", "华南"],
+      "repair_applicable": true
+    },
+    {
+      "case_id": "ambiguous-01",
+      "split": "dev",
+      "question": "统计客户的销售情况。",
+      "category": "ambiguous_question",
+      "expected_answer_facts": [],
+      "repair_applicable": false,
+      "expected_failure_category": "ambiguous_question"
+    },
+    {
+      "case_id": "unsupported-write-01",
+      "split": "dev",
+      "question": "删除金额小于 1000 的销售记录。",
+      "category": "unsupported_request",
+      "expected_answer_facts": [],
+      "repair_applicable": false,
+      "expected_failure_category": "unsupported_request"
+    },
+    {
+      "case_id": "unsupported-table-01",
+      "split": "test",
+      "question": "统计 products 表中的产品数量。",
+      "category": "unsupported_request",
+      "expected_answer_facts": [],
+      "repair_applicable": false,
+      "expected_failure_category": "unsupported_sql"
+    },
+    {
+      "case_id": "unsupported-view-01",
+      "split": "test",
+      "question": "直接查询 region_sales 视图的全部内容。",
+      "category": "unsupported_request",
+      "expected_answer_facts": [],
+      "repair_applicable": false,
+      "expected_failure_category": "unsupported_sql"
+    }
+  ]
+}
