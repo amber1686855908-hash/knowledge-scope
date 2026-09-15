@@ -50,6 +50,14 @@ Run #3 将分析预算从 512 提高到 1024 后，已确认的 analysis token-l
 简短 JSON 输出契约，并在该阶段显式关闭已有的 reasoning 控制；不先继续提高预算。该修改
 尚未运行新的 DEV/TEST provider 评测，不宣称质量提升，也不回写历史运行产物或冻结数据集。
 
+## A5.7d3 投影契约收紧（未运行 provider）
+
+Run #4 已确认 A5.7d2 消除了 analysis token-limit failure；剩余可见质量失败主要是
+`result_mismatch`，尤其是额外列、遗漏请求列、列顺序和别名不一致。A5.7d3 因此只收紧通用
+NL2SQL 投影规则：按问题选择恰好足够的列或派生值，不自动暴露 join/filter/group/order 的
+辅助列，并在问题明确时保持请求顺序。该修改不包含 case ID、fixture 表名、reference SQL
+或期望答案，也尚未运行新的 DEV/TEST provider 评测，不宣称准确率提升。
+
 ## 冻结输入
 
 评测输入来自 `docs/benchmarks/a5-7-chatbi-eval-v2.json`，状态为
