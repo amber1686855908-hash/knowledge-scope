@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from uuid import UUID
 
@@ -133,6 +134,23 @@ def test_chatbi_ask_parser_accepts_question_and_model() -> None:
     assert args.question == "统计销售额"
     assert args.max_chars == 12_000
     assert args.model == "deepseek-chat"
+
+
+def test_chatbi_eval_offline_output_states_quality_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("knowledge_scope.cli.get_settings", lambda: Settings(_env_file=None))
+
+    assert main(["chatbi", "eval", "--output", str(tmp_path / "run.json")]) == 0
+    output = capsys.readouterr().out
+
+    assert "offline_verification: infrastructure-only; not a model-quality benchmark" in output
+    assert '"quality_claim": "offline_infrastructure_only"' in output
+    assert (
+        json.loads(output[output.index("{\n") :])["aggregates"]["all"]["provider_quality"] is None
+    )
 
 
 def test_mcp_serve_parser_uses_local_stdio_command() -> None:

@@ -1,5 +1,6 @@
 from decimal import Decimal
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
@@ -67,6 +68,7 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.chatbi_agent_max_steps == 6
     assert settings.chatbi_agent_max_llm_calls == 3
     assert settings.chatbi_analysis_max_tokens == 512
+    assert settings.chatbi_evaluation_datasource_id is None
     assert settings.mcp_max_in_flight == 4
     assert settings.sparse_index_path == Path("data/evaluation/a4-3/sparse.sqlite3")
     assert settings.sparse_bm25_k1 == 1.2
@@ -130,6 +132,10 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_AGENT_MAX_STEPS", "8")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_AGENT_MAX_LLM_CALLS", "4")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_CHATBI_ANALYSIS_MAX_TOKENS", "768")
+    monkeypatch.setenv(
+        "KNOWLEDGE_SCOPE_CHATBI_EVALUATION_DATASOURCE_ID",
+        "11111111-1111-4111-8111-111111111111",
+    )
     monkeypatch.setenv("KNOWLEDGE_SCOPE_MCP_MAX_IN_FLIGHT", "2")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_INDEX_PATH", "/tmp/sparse.sqlite3")
     monkeypatch.setenv("KNOWLEDGE_SCOPE_SPARSE_BM25_K1", "1.4")
@@ -190,6 +196,7 @@ def test_settings_load_prefixed_environment_variables(monkeypatch: pytest.Monkey
     assert settings.chatbi_agent_max_steps == 8
     assert settings.chatbi_agent_max_llm_calls == 4
     assert settings.chatbi_analysis_max_tokens == 768
+    assert settings.chatbi_evaluation_datasource_id == UUID("11111111-1111-4111-8111-111111111111")
     assert settings.mcp_max_in_flight == 2
     assert settings.sparse_index_path == Path("/tmp/sparse.sqlite3")
     assert settings.sparse_bm25_k1 == 1.4
